@@ -1,9 +1,10 @@
 """Foraging maze environments for reinforcement learning experiments."""
-from typing import Optional, List
+
+from typing import List, Optional
 
 import numpy as np
 
-from forage_rl.config import MazeParams, DefaultParams
+from forage_rl.config import DefaultParams, MazeParams
 
 
 class ForagingReward:
@@ -28,23 +29,60 @@ class ForagingReward:
         return 1.0 if np.random.rand() < prob else 0.0
 
 
+# TODO: Need a more flexible way to define state-action-reward configs
+# States can be bound to a different set of actions and reward decays
+# States can have the same label, but be bound to a different reward decay
 class Maze:
-    """Full 6-state foraging maze with stochastic transitions.
+    """
+    Base Maze environment for reinforcement learning experiments.
 
-    States 0-2: Upper patch
-    States 3-5: Lower patch
+    Default Environment:
+    Full 6-state foraging maze with stochastic transitions.
+
+    States 0-2: Upper patch (reward decay decreases as state number increases)
+    States 3-5: Lower patch (reward decay increases as state number increases)
     Actions: 0 = stay, 1 = leave
     """
 
-    def __init__(self, decays: list = None, horizon: int = None, num_states: int = 2, num_actions: int = 2,
-                 state: int = 0, time: int = 0, rewards: Optional[List[ForagingReward]] = None) -> None:
+    def __init__(
+        self,
+        decays: Optional[List[float]] = None,
+        horizon: Optional[int] = None,
+        num_states: int = 2,
+        num_actions: int = 2,
+        state: int = 0,
+        time: int = 0,
+        rewards: Optional[List[ForagingReward]] = None,
+        state_labels: Optional[List[str]] = None,
+        action_labels: Optional[List[str]] = None,
+    ) -> None:
         self.decays = decays or MazeParams.FULL_MAZE_DECAYS
         self.horizon = horizon or DefaultParams.HORIZON
         self.num_states = num_states
         self.num_actions = num_actions
+        self.action_labels = self._set_action_labels(
+            action_labels or MazeParams.BASE_ACTIONS
+        )
         self.state = state
+        self.state_labels = self._set_state_labels(
+            state_labels or MazeParams.BASE_STATES
+        )
         self.time = time
         self.rewards = rewards or self._init_rewards()
+
+    def _set_state_labels(self, state_labels: List[str]) -> List[str]:
+        if len(state_labels) != self.num_states:
+            raise ValueError(f"Number of states {self.num_states} does not match")
+
+        return state_labels
+
+    def _set_action_labels(self, action_labels: List[str]) -> List[str]:
+        if len(set(action_labels)) != self.num_actions:
+            raise ValueError(
+                f"Action labels must have {self.num_actions} unique actions"
+            )
+
+        return action_labels
 
     def _init_rewards(self) -> List[ForagingReward]:
         return [ForagingReward(d) for d in self.decays]
@@ -108,7 +146,7 @@ class MazePOMDP(Maze):
     hiding the specific patch identity.
     """
 
-    def __init__(self, decays: list = None, horizon: int = None):
+    def __init__(self, decays: Optional[list] = None, horizon: Optional[int] = None):
         super().__init__(decays, horizon)
         self.num_states = 2  # Observation space
 
@@ -127,13 +165,16 @@ class SimpleMaze(Maze):
     Actions: 0 = stay, 1 = leave
     """
 
-    def __init__(self, decays: list = None, horizon: int = None):
-        super().__init__(decays or MazeParams.SIMPLE_MAZE_DECAYS,
-                         horizon or DefaultParams.HORIZON,
-                         num_states=2,
-                         num_actions=2,
-                         state=0,
-                         time=0)
+    def __init__(self, decays: Optional[list] = None, horizon: Optional[int] = None):
+        super().__init__(
+            decays or MazeParams.SIMPLE_MAZE_DECAYS,
+            horizon or DefaultParams.HORIZON,
+            num_states=2,
+            num_actions=2,
+            state=0,
+            time=0,
+            action_labels=MazeParams.SIMPLE_ACTIONS,
+        )
 
     def reset(self) -> int:
         """Reset environment to initial state."""
@@ -179,4 +220,6 @@ if __name__ == "__main__":
     for step, action in enumerate(actions):
         action_name = "stay" if action == 0 else "leave"
         obs, reward, done = maze.step(action)
-        print(f"Step {step}: action={action_name}, state={obs}, reward={reward:.1f}, done={done}")
+        print(
+            f"Step {step}: action={action_name}, state={obs}, reward={reward:.1f}, done={done}"
+        )

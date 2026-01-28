@@ -1,5 +1,7 @@
 """Value iteration solver for the foraging maze."""
 
+from typing import Optional
+
 import numpy as np
 
 from forage_rl.config import DefaultParams, MazeParams
@@ -14,16 +16,19 @@ class ValueIterationSolver:
     def __init__(
         self,
         num_states: int = 6,
-        max_time_spent: int = None,
-        gamma: float = None,
-        decays: list = None,
-        convergence_threshold: float = None,
+        max_time_spent: Optional[int] = None,
+        gamma: Optional[float] = None,
+        decays: Optional[list] = None,
+        convergence_threshold: Optional[float] = None,
     ):
         self.num_states = num_states
         self.max_time_spent = max_time_spent or DefaultParams.MAX_TIME_SPENT
         self.gamma = gamma or DefaultParams.GAMMA
-        self.decays = decays or (MazeParams.FULL_MAZE_DECAYS if num_states == 6
-                                  else MazeParams.SIMPLE_MAZE_DECAYS)
+        self.decays = decays or (
+            MazeParams.FULL_MAZE_DECAYS
+            if num_states == 6
+            else MazeParams.SIMPLE_MAZE_DECAYS
+        )
         self.threshold = convergence_threshold or DefaultParams.CONVERGENCE_THRESHOLD
 
         self.upper_patch = list(range(num_states // 2))
@@ -58,9 +63,9 @@ class ValueIterationSolver:
         else:
             # Stochastic transitions for full maze
             expected_value = (
-                probs[0] * self.V[targets[0], 0] +
-                probs[1] * self.V[targets[1], 0] +
-                probs[2] * self.V[targets[2], 0]
+                probs[0] * self.V[targets[0], 0]
+                + probs[1] * self.V[targets[1], 0]
+                + probs[2] * self.V[targets[2], 0]
             )
             return r_sa + self.gamma * expected_value
 
@@ -70,7 +75,7 @@ class ValueIterationSolver:
         Returns:
             Tuple of (value_function, policy)
         """
-        delta = float('inf')
+        delta = float("inf")
         iterations = 0
 
         while delta > self.threshold:
@@ -135,7 +140,9 @@ if __name__ == "__main__":
     print("\n" + "=" * 50)
     print("Solving for 2-state maze")
     print("=" * 50)
-    solver_simple = ValueIterationSolver(num_states=2, decays=MazeParams.SIMPLE_MAZE_DECAYS)
+    solver_simple = ValueIterationSolver(
+        num_states=2, decays=MazeParams.SIMPLE_MAZE_DECAYS
+    )
     solver_simple.solve()
     solver_simple.print_value_function()
     solver_simple.print_policy()

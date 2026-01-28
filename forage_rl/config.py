@@ -50,3 +50,18 @@ class MazeParams:
 
     # Transition probabilities for full maze
     TRANSITION_PROBS = [0.15, 0.35, 0.50]  # Cumulative: 0.15, 0.50, 1.0
+
+    # Action Labels
+    BASE_ACTIONS = ["stay", "stay", "stay", "leave", "leave", "leave"]
+    SIMPLE_ACTIONS = ["stay", "leave"]
+
+    # State Labels
+    BASE_STATES = [
+        "Upper Patch",
+        "Upper Patch",
+        "Upper Patch",
+        "Lower Patch",
+        "Lower Patch",
+        "Lower Patch",
+    ]
+    SIMPLE_STATES = ["Upper Patch", "Lower Patch"]

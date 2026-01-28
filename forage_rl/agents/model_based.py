@@ -1,8 +1,10 @@
 """Model-based reinforcement learning agent."""
 
-import numpy as np
+from typing import Optional
 
+import numpy as np
 from base import BaseAgent
+
 from forage_rl.config import DefaultParams
 
 
@@ -17,10 +19,10 @@ class MBRL(BaseAgent):
     def __init__(
         self,
         maze,
-        num_episodes: int = None,
-        gamma: float = None,
-        num_planning_steps: int = None,
-        beta: float = None,
+        num_episodes: Optional[int] = None,
+        gamma: Optional[float] = None,
+        num_planning_steps: Optional[int] = None,
+        beta: Optional[float] = None,
     ):
         super().__init__(maze, beta)
         self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
@@ -42,10 +44,14 @@ class MBRL(BaseAgent):
                             next_state = s
                             next_time = min(t + 1, self.maze.horizon - 1)
                         else:  # Leave - deterministic transition for SimpleMaze
-                            next_state = 1 - s if self.maze.num_states == 2 else (s + 3) % 6
+                            next_state = (
+                                1 - s if self.maze.num_states == 2 else (s + 3) % 6
+                            )
                             next_time = 0
 
-                        self.q_table[s, t, a] = r_sa + self.gamma * np.max(self.q_table[next_state, next_time])
+                        self.q_table[s, t, a] = r_sa + self.gamma * np.max(
+                            self.q_table[next_state, next_time]
+                        )
 
     def simulate_model_based_rl(self, transitions: list) -> list:
         """Evaluate log-likelihood of transitions under model-based RL.
@@ -60,7 +66,12 @@ class MBRL(BaseAgent):
 
         for transition in transitions:
             state, time_spent, action, reward, next_state = transition
-            state, time_spent, action, next_state = int(state), int(time_spent), int(action), int(next_state)
+            state, time_spent, action, next_state = (
+                int(state),
+                int(time_spent),
+                int(action),
+                int(next_state),
+            )
 
             # Compute log-likelihood under current policy
             action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
@@ -77,7 +88,7 @@ class MBRL(BaseAgent):
 
         return log_likelihoods
 
-    def train(self, save_path: str = None, verbose: bool = True) -> list:
+    def train(self, save_path: Optional[str] = None, verbose: bool = True) -> list:
         """Train the agent and optionally save trajectories.
 
         Args:

@@ -1,38 +1,43 @@
 """Q-learning agents for reinforcement learning."""
 
-import numpy as np
-import matplotlib.pyplot as plt
+from typing import List, Optional
 
+import matplotlib.pyplot as plt
+import numpy as np
 from base import BaseAgent
+
 from forage_rl.config import DefaultParams
+from forage_rl.environments import Maze
 
 
 class QLearning(BaseAgent):
-    """Basic Q-learning agent without time dimension.
+    """Basic Q-learning agent without time dimension. (i.e. Q(s, a))
 
     Uses epsilon-greedy exploration.
     """
 
     def __init__(
         self,
-        maze,
-        num_episodes: int = None,
-        alpha: float = None,
-        gamma: float = None,
-        epsilon: float = None,
+        maze: Maze,
+        num_episodes: int = DefaultParams.NUM_EPISODES,
+        alpha: float = DefaultParams.ALPHA,
+        gamma: float = DefaultParams.GAMMA,
+        epsilon: float = DefaultParams.EPSILON,
         min_epsilon: float = 0.01,
         decay_rate: float = 0.995,
     ):
         super().__init__(maze)
-        self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
-        self.alpha = alpha or DefaultParams.ALPHA
-        self.gamma = gamma or DefaultParams.GAMMA
-        self.epsilon = epsilon or DefaultParams.EPSILON
+        self.num_episodes = num_episodes
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
         self.min_epsilon = min_epsilon
         self.decay_rate = decay_rate
         self.q_table = np.zeros((maze.num_states, maze.num_actions))
-        self.q_history = [[] for _ in range(maze.num_states * maze.num_actions)]
-        self.returns = []
+        self.q_history: List[List[float]] = [
+            [] for _ in range(maze.num_states * maze.num_actions)
+        ]
+        self.returns: List[float] = []
 
     def choose_action(self, state: int) -> int:
         """Choose action using epsilon-greedy exploration."""
@@ -64,8 +69,11 @@ class QLearning(BaseAgent):
             # Track Q-values for analysis
             for s in range(self.maze.num_states):
                 for a in range(self.maze.num_actions):
-                    self.q_history[s * self.maze.num_actions + a].append(self.q_table[s, a])
+                    self.q_history[s * self.maze.num_actions + a].append(
+                        self.q_table[s, a]
+                    )
 
+            # Decay epsilon
             self.epsilon = max(self.min_epsilon, self.epsilon * self.decay_rate)
             self.returns.append(total_reward)
 
@@ -80,12 +88,14 @@ class QLearning(BaseAgent):
         im = ax.imshow(self.q_table)
         ax.set_title("Q-values")
         ax.set_xlabel("Actions")
-        ax.set_xticks([0, 1])
-        ax.set_xticklabels(["Stay", "Leave"])
+        ax.set_xticks(list(range(self.maze.num_actions)))
+        ax.set_xticklabels(self.maze.actions)
         ax.set_ylabel("States")
         ax.set_yticks(range(self.maze.num_states))
-        ax.set_yticklabels(["Upper Patch", "Lower Patch"] if self.maze.num_states == 2 else
-                          [f"State {s}" for s in range(self.maze.num_states)])
+        ax.set_yticklabels(
+            self.maze.state_labels
+            or [f"State {s}" for s in range(self.maze.num_states)]
+        )
         plt.colorbar(im, ax=ax)
         plt.tight_layout()
         if show:
@@ -95,9 +105,11 @@ class QLearning(BaseAgent):
     def plot_q_values_over_time(self, show: bool = True):
         """Plot Q-value evolution over training episodes."""
         fig, ax = plt.subplots(figsize=(10, 6))
-        labels = [f"S{s} {'Stay' if a == 0 else 'Leave'}"
-                  for s in range(self.maze.num_states)
-                  for a in range(self.maze.num_actions)]
+        labels = [
+            f"S{s} {'Stay' if a == 0 else 'Leave'}"
+            for s in range(self.maze.num_states)
+            for a in range(self.maze.num_actions)
+        ]
 
         for i, history in enumerate(self.q_history):
             if history:
@@ -124,7 +136,7 @@ class QLearning(BaseAgent):
 
 
 class QLearningTime(BaseAgent):
-    """Q-learning agent with time-aware state representation.
+    """Q-learning agent with time-aware state representation. (i.e. Q(s, t, a))
 
     Uses Boltzmann exploration and incorporates time spent in state.
     """
@@ -132,10 +144,10 @@ class QLearningTime(BaseAgent):
     def __init__(
         self,
         maze,
-        num_episodes: int = None,
-        alpha: float = None,
-        gamma: float = None,
-        beta: float = None,
+        num_episodes: Optional[int] = None,
+        alpha: Optional[float] = None,
+        gamma: Optional[float] = None,
+        beta: Optional[float] = None,
     ):
         super().__init__(maze, beta)
         self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
@@ -147,7 +159,9 @@ class QLearningTime(BaseAgent):
         """Choose action using Boltzmann exploration."""
         return self.choose_action_boltzmann(self.q_table[state, time_spent])
 
-    def update_q_value(self, state: int, time_spent: int, action: int, reward: float, next_state: int):
+    def update_q_value(
+        self, state: int, time_spent: int, action: int, reward: float, next_state: int
+    ):
         """Update Q-value using TD learning."""
         if state == next_state:
             next_time_spent = min(time_spent + 1, self.maze.horizon - 1)
@@ -155,7 +169,10 @@ class QLearningTime(BaseAgent):
             next_time_spent = 0
 
         best_next_action = np.argmax(self.q_table[next_state, next_time_spent])
-        td_target = reward + self.gamma * self.q_table[next_state, next_time_spent, best_next_action]
+        td_target = (
+            reward
+            + self.gamma * self.q_table[next_state, next_time_spent, best_next_action]
+        )
         td_error = td_target - self.q_table[state, time_spent, action]
         self.q_table[state, time_spent, action] += self.alpha * td_error
 
@@ -171,9 +188,15 @@ class QLearningTime(BaseAgent):
         log_likelihoods = []
 
         for transition in transitions:
-            state, time_spent, action, reward, next_state = [int(x) if i < 4 else x
-                                                              for i, x in enumerate(transition)]
-            state, time_spent, action, next_state = int(state), int(time_spent), int(action), int(next_state)
+            state, time_spent, action, reward, next_state = [
+                int(x) if i < 4 else x for i, x in enumerate(transition)
+            ]
+            state, time_spent, action, next_state = (
+                int(state),
+                int(time_spent),
+                int(action),
+                int(next_state),
+            )
 
             # Compute log-likelihood under current policy
             action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
@@ -184,7 +207,7 @@ class QLearningTime(BaseAgent):
 
         return log_likelihoods
 
-    def train(self, save_path: str = None, verbose: bool = True) -> list:
+    def train(self, save_path: Optional[str] = None, verbose: bool = True) -> list:
         """Train the agent and optionally save trajectories.
 
         Args:
@@ -227,6 +250,7 @@ class QLearningTime(BaseAgent):
 
         if save_path:
             import numpy as np
+
             print(f"Saving trajectories to {save_path}")
             np.save(save_path, transitions)
 
