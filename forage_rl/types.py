@@ -45,10 +45,10 @@ class TimedTransition(Transition):
 class Trajectory(BaseModel):
     fields: ClassVar[List[str]] = [
         "state",
-        "time_spent",
         "action",
         "reward",
         "next_state",
+        "time_spent",
     ]
     transitions: list[TimedTransition]
 

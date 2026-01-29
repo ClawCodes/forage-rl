@@ -1,6 +1,6 @@
 """Q-learning agents for reinforcement learning."""
 
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from forage_rl import SignedInteger, Trajectory
@@ -150,13 +150,10 @@ class QLearningTime(BaseAgent):
 
         return log_likelihoods
 
-    def train(
-        self, save_path: Optional[str] = None, verbose: bool = True
-    ) -> Trajectory:
+    def train(self, verbose: bool = True) -> Trajectory:
         """Train the agent and optionally save trajectories.
 
         Args:
-            save_path: Path to save trajectories (if provided)
             verbose: Whether to print progress
 
         Returns:
@@ -196,10 +193,6 @@ class QLearningTime(BaseAgent):
                 if episode % 100 == 0:
                     avg_q = np.mean(self.q_table)
                     print(f"Episode {episode}, Average Q-value: {avg_q:.4f}")
-
-        if save_path:
-            print(f"Saving trajectories to {save_path}")
-            np.save(save_path, transitions)
 
         if verbose:
             print("Training completed.")
