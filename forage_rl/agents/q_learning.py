@@ -82,26 +82,7 @@ class QLearning(BaseAgent):
             print("Final Q-table:")
             print(self.q_table)
 
-    def plot_q_values(self, show: bool = True):
-        """Plot Q-values as a heatmap."""
-        fig, ax = plt.subplots(figsize=(6, 4))
-        im = ax.imshow(self.q_table)
-        ax.set_title("Q-values")
-        ax.set_xlabel("Actions")
-        ax.set_xticks(list(range(self.maze.num_actions)))
-        ax.set_xticklabels(self.maze.actions)
-        ax.set_ylabel("States")
-        ax.set_yticks(range(self.maze.num_states))
-        ax.set_yticklabels(
-            self.maze.state_labels
-            or [f"State {s}" for s in range(self.maze.num_states)]
-        )
-        plt.colorbar(im, ax=ax)
-        plt.tight_layout()
-        if show:
-            plt.show()
-        return fig
-
+    # TODO: CONTINUE REFACTOR
     def plot_q_values_over_time(self, show: bool = True):
         """Plot Q-value evolution over training episodes."""
         fig, ax = plt.subplots(figsize=(10, 6))

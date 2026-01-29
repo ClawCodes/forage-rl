@@ -87,6 +87,12 @@ class Maze:
     def _init_rewards(self) -> List[ForagingReward]:
         return [ForagingReward(d) for d in self.decays]
 
+    def get_state_label(self, state_idx: int) -> str:
+        return self.state_labels[state_idx]
+
+    def get_action_label(self, action_idx: int) -> str:
+        return self.action_labels[action_idx]
+
     def reset(self) -> int:
         """Reset environment to initial state."""
         self.state = 0
@@ -172,6 +178,7 @@ class SimpleMaze(Maze):
             num_states=2,
             num_actions=2,
             state=0,
+            state_labels=MazeParams.SIMPLE_STATES,
             time=0,
             action_labels=MazeParams.SIMPLE_ACTIONS,
         )

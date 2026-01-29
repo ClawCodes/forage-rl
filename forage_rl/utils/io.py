@@ -1,9 +1,11 @@
 """File I/O utilities for saving and loading experiment data."""
 
-import numpy as np
 from pathlib import Path
+from typing import Optional
 
-from forage_rl.config import TRAJECTORIES_DIR, LOGPROBS_DIR, ensure_directories
+import numpy as np
+
+from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
 
 
 def save_trajectories(data: list, algo_name: str, run_id: int) -> Path:
@@ -72,7 +74,7 @@ def load_logprobs(label: str, run_id: int) -> np.ndarray:
     return np.load(filepath, allow_pickle=True)
 
 
-def list_trajectory_files(algo_name: str = None) -> list:
+def list_trajectory_files(algo_name: Optional[str] = None) -> list:
     """List all trajectory files in the data directory.
 
     Args:
@@ -88,7 +90,7 @@ def list_trajectory_files(algo_name: str = None) -> list:
     return sorted(TRAJECTORIES_DIR.glob(pattern))
 
 
-def list_logprob_files(label: str = None) -> list:
+def list_logprob_files(label: Optional[str] = None) -> list:
     """List all log probability files in the data directory.
 
     Args:
