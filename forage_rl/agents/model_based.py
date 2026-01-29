@@ -3,9 +3,10 @@
 from typing import Optional
 
 import numpy as np
-from base import BaseAgent
+from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
+from forage_rl import Transition, Trajectory
 
 
 class MBRL(BaseAgent):
@@ -22,7 +23,7 @@ class MBRL(BaseAgent):
         num_episodes: Optional[int] = None,
         gamma: Optional[float] = None,
         num_planning_steps: Optional[int] = None,
-        beta: Optional[float] = None,
+        beta: float | int = DefaultParams.BETA,
     ):
         super().__init__(maze, beta)
         self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
@@ -53,26 +54,18 @@ class MBRL(BaseAgent):
                             self.q_table[next_state, next_time]
                         )
 
-    def simulate_model_based_rl(self, transitions: list) -> list:
+    def simulate_model_based_rl(self, trajectory: Trajectory) -> list[float]:
         """Evaluate log-likelihood of transitions under model-based RL.
 
         Args:
-            transitions: List of (state, time_spent, action, reward, next_state) tuples
+            trajectory: instance of Trajectory
 
         Returns:
             List of log-likelihoods for each transition
         """
         log_likelihoods = []
 
-        for transition in transitions:
-            state, time_spent, action, reward, next_state = transition
-            state, time_spent, action, next_state = (
-                int(state),
-                int(time_spent),
-                int(action),
-                int(next_state),
-            )
-
+        for state, time_spent, action, reward, next_state in trajectory:
             # Compute log-likelihood under current policy
             action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
             log_likelihoods.append(np.log(action_probs[action]))
@@ -88,7 +81,9 @@ class MBRL(BaseAgent):
 
         return log_likelihoods
 
-    def train(self, save_path: Optional[str] = None, verbose: bool = True) -> list:
+    def train(
+        self, save_path: Optional[str] = None, verbose: bool = True
+    ) -> Trajectory:
         """Train the agent and optionally save trajectories.
 
         Args:
@@ -113,8 +108,15 @@ class MBRL(BaseAgent):
                 action = self.choose_action_boltzmann(self.q_table[state, time_spent])
                 next_state, reward, done = self.maze.step(action)
 
-                transition = (state, time_spent, action, reward, next_state)
-                transitions.append(transition)
+                transitions.append(
+                    Transition(
+                        state=state,
+                        time_spent=time_spent,
+                        action=action,
+                        reward=reward,
+                        next_state=next_state,
+                    )
+                )
 
                 # Update reward estimate
                 self.count[state, time_spent, action] += 1
@@ -140,4 +142,4 @@ class MBRL(BaseAgent):
             print("Training completed.")
             self.print_policy()
 
-        return transitions
+        return Trajectory(transitions=transitions)

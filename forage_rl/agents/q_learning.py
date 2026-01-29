@@ -4,10 +4,13 @@ from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-from base import BaseAgent
+from forage_rl import SignedInteger, Trajectory
+
+from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
+from forage_rl import Transition
 
 
 class QLearning(BaseAgent):
@@ -39,13 +42,15 @@ class QLearning(BaseAgent):
         ]
         self.returns: List[float] = []
 
-    def choose_action(self, state: int) -> int:
+    def choose_action(self, state: int) -> SignedInteger:
         """Choose action using epsilon-greedy exploration."""
         if np.random.rand() < self.epsilon:
             return np.random.choice(self.maze.num_actions)
         return np.argmax(self.q_table[state])
 
-    def update_q_value(self, state: int, action: int, reward: float, next_state: int):
+    def update_q_value(
+        self, state: int, action: SignedInteger, reward: float, next_state: int
+    ):
         """Update Q-value using TD learning."""
         best_next_action = np.argmax(self.q_table[next_state])
         td_target = reward + self.gamma * self.q_table[next_state, best_next_action]
@@ -128,7 +133,7 @@ class QLearningTime(BaseAgent):
         num_episodes: Optional[int] = None,
         alpha: Optional[float] = None,
         gamma: Optional[float] = None,
-        beta: Optional[float] = None,
+        beta: int | float = DefaultParams.BETA,
     ):
         super().__init__(maze, beta)
         self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
@@ -141,7 +146,12 @@ class QLearningTime(BaseAgent):
         return self.choose_action_boltzmann(self.q_table[state, time_spent])
 
     def update_q_value(
-        self, state: int, time_spent: int, action: int, reward: float, next_state: int
+        self,
+        state: int,
+        time_spent: int,
+        action: SignedInteger,
+        reward: float,
+        next_state: int,
     ):
         """Update Q-value using TD learning."""
         if state == next_state:
@@ -157,28 +167,18 @@ class QLearningTime(BaseAgent):
         td_error = td_target - self.q_table[state, time_spent, action]
         self.q_table[state, time_spent, action] += self.alpha * td_error
 
-    def simulate_q_learning(self, transitions: list) -> list:
+    def simulate_q_learning(self, trajectory: Trajectory) -> list[float]:
         """Evaluate log-likelihood of transitions under Q-learning updates.
 
         Args:
-            transitions: List of (state, time_spent, action, reward, next_state) tuples
+            trajectory: Instance of Trajectory
 
         Returns:
             List of log-likelihoods for each transition
         """
         log_likelihoods = []
 
-        for transition in transitions:
-            state, time_spent, action, reward, next_state = [
-                int(x) if i < 4 else x for i, x in enumerate(transition)
-            ]
-            state, time_spent, action, next_state = (
-                int(state),
-                int(time_spent),
-                int(action),
-                int(next_state),
-            )
-
+        for state, time_spent, action, reward, next_state in trajectory:
             # Compute log-likelihood under current policy
             action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
             log_likelihoods.append(np.log(action_probs[action]))
@@ -188,7 +188,9 @@ class QLearningTime(BaseAgent):
 
         return log_likelihoods
 
-    def train(self, save_path: Optional[str] = None, verbose: bool = True) -> list:
+    def train(
+        self, save_path: Optional[str] = None, verbose: bool = True
+    ) -> Trajectory:
         """Train the agent and optionally save trajectories.
 
         Args:
@@ -210,8 +212,15 @@ class QLearningTime(BaseAgent):
                 action = self.choose_action(state, time_spent)
                 next_state, reward, done = self.maze.step(action)
 
-                transition = (state, time_spent, action, reward, next_state)
-                transitions.append(transition)
+                transitions.append(
+                    Transition(
+                        state=state,
+                        time_spent=time_spent,
+                        action=action,
+                        reward=reward,
+                        next_state=next_state,
+                    )
+                )
 
                 self.update_q_value(state, time_spent, action, reward, next_state)
 
@@ -230,8 +239,6 @@ class QLearningTime(BaseAgent):
                     print(f"Episode {episode}, Average Q-value: {avg_q:.4f}")
 
         if save_path:
-            import numpy as np
-
             print(f"Saving trajectories to {save_path}")
             np.save(save_path, transitions)
 
@@ -239,4 +246,4 @@ class QLearningTime(BaseAgent):
             print("Training completed.")
             self.print_policy()
 
-        return transitions
+        return Trajectory(transitions=transitions)

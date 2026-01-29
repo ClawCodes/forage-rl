@@ -1,6 +1,7 @@
 """Generate training trajectories from MBRL and Q-learning agents."""
 
 import argparse
+from typing import Optional
 
 from forage_rl.environments import SimpleMaze
 from forage_rl.agents import MBRL, QLearningTime
@@ -9,10 +10,10 @@ from forage_rl.config import DefaultParams, ensure_directories
 
 
 def generate_mbrl_trajectories(
-    num_runs: int = None,
-    num_episodes: int = None,
-    gamma: float = None,
-    verbose: bool = True,
+    num_runs: Optional[int] = None,
+    num_episodes: Optional[int] = None,
+    gamma: Optional[float] = None,
+    verbose: Optional[bool] = True,
 ):
     """Generate trajectories from MBRL agent.
 
@@ -30,9 +31,9 @@ def generate_mbrl_trajectories(
 
     for i in range(num_runs):
         if verbose:
-            print(f"\n{'='*50}")
-            print(f"MBRL Run {i+1}/{num_runs}")
-            print(f"{'='*50}")
+            print(f"\n{'=' * 50}")
+            print(f"MBRL Run {i + 1}/{num_runs}")
+            print(f"{'=' * 50}")
 
         maze = SimpleMaze()
         agent = MBRL(maze, num_episodes=num_episodes, gamma=gamma)
@@ -44,10 +45,10 @@ def generate_mbrl_trajectories(
 
 
 def generate_qlearning_trajectories(
-    num_runs: int = None,
-    num_episodes: int = None,
-    alpha: float = None,
-    verbose: bool = True,
+    num_runs: Optional[int] = None,
+    num_episodes: Optional[int] = None,
+    alpha: Optional[float] = None,
+    verbose: Optional[bool] = True,
 ):
     """Generate trajectories from Q-learning agent.
 
@@ -65,9 +66,9 @@ def generate_qlearning_trajectories(
 
     for i in range(num_runs):
         if verbose:
-            print(f"\n{'='*50}")
-            print(f"Q-Learning Run {i+1}/{num_runs}")
-            print(f"{'='*50}")
+            print(f"\n{'=' * 50}")
+            print(f"Q-Learning Run {i + 1}/{num_runs}")
+            print(f"{'=' * 50}")
 
         maze = SimpleMaze()
         agent = QLearningTime(maze, num_episodes=num_episodes, alpha=alpha)
@@ -80,12 +81,24 @@ def generate_qlearning_trajectories(
 
 def main():
     parser = argparse.ArgumentParser(description="Generate training trajectories")
-    parser.add_argument("--algo", choices=["mbrl", "qlearning", "both"], default="both",
-                        help="Which algorithm(s) to run")
-    parser.add_argument("--num-runs", type=int, default=DefaultParams.NUM_TRAINING_RUNS,
-                        help="Number of independent runs")
-    parser.add_argument("--num-episodes", type=int, default=DefaultParams.NUM_TRAINING_EPISODES,
-                        help="Episodes per run")
+    parser.add_argument(
+        "--algo",
+        choices=["mbrl", "qlearning", "both"],
+        default="both",
+        help="Which algorithm(s) to run",
+    )
+    parser.add_argument(
+        "--num-runs",
+        type=int,
+        default=DefaultParams.NUM_TRAINING_RUNS,
+        help="Number of independent runs",
+    )
+    parser.add_argument(
+        "--num-episodes",
+        type=int,
+        default=DefaultParams.NUM_TRAINING_EPISODES,
+        help="Episodes per run",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
 
     args = parser.parse_args()

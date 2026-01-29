@@ -5,6 +5,7 @@ from typing import List, Optional
 import numpy as np
 
 from forage_rl.config import DefaultParams, MazeParams
+from forage_rl import SignedInteger
 
 
 class ForagingReward:
@@ -101,7 +102,7 @@ class Maze:
             r.reset()
         return self.state
 
-    def step(self, action: int) -> tuple:
+    def step(self, action: SignedInteger) -> tuple:
         """Execute action and return (next_state, reward, done)."""
         new_state = self._get_transition(action)
         reward = self._get_reward(new_state)
@@ -120,7 +121,7 @@ class Maze:
                 r.reset()
             return 0.0
 
-    def _get_transition(self, action: int) -> int:
+    def _get_transition(self, action: SignedInteger) -> int:
         """Get next state based on action."""
         if action == 0:  # Stay
             return self.state
@@ -156,7 +157,7 @@ class MazePOMDP(Maze):
         super().__init__(decays, horizon)
         self.num_states = 2  # Observation space
 
-    def step(self, action: int) -> tuple:
+    def step(self, action: SignedInteger) -> tuple:
         """Execute action and return (observation, reward, done)."""
         true_state, reward, done = super().step(action)
         obs = 0 if true_state in [0, 1, 2] else 1
@@ -191,7 +192,7 @@ class SimpleMaze(Maze):
             r.reset()
         return self.state
 
-    def step(self, action: int) -> tuple:
+    def step(self, action: SignedInteger) -> tuple:
         """Execute action and return (next_state, reward, done)."""
         new_state = self._get_transition(action)
         reward = self._get_reward(new_state)
@@ -209,7 +210,7 @@ class SimpleMaze(Maze):
                 r.reset()
             return 0.0
 
-    def _get_transition(self, action: int) -> int:
+    def _get_transition(self, action: SignedInteger) -> int:
         """Get next state based on action (deterministic)."""
         if action == 0:  # Stay
             return self.state

@@ -1,19 +1,26 @@
 """Run model inference experiment comparing MBRL vs Q-learning."""
 
 import argparse
+from typing import Optional
+
 import numpy as np
 
+from forage_rl import Trajectory
 from forage_rl.environments import SimpleMaze
 from forage_rl.agents import MBRL, QLearningTime
 from forage_rl.utils import load_trajectories, save_logprobs, get_run_count
 from forage_rl.config import DefaultParams, ensure_directories
 
 
-def evaluate_trajectory(transitions: np.ndarray, gamma: float = None, alpha: float = None) -> dict:
+def evaluate_trajectory(
+    trajectory: Trajectory,
+    gamma: Optional[float] = None,
+    alpha: Optional[float] = None,
+) -> dict:
     """Evaluate a trajectory under both MBRL and Q-learning models.
 
     Args:
-        transitions: Array of transition tuples
+        trajectory: Instance of Trajectory
         gamma: Discount factor for MBRL
         alpha: Learning rate for Q-learning
 
@@ -27,12 +34,14 @@ def evaluate_trajectory(transitions: np.ndarray, gamma: float = None, alpha: flo
 
     # Evaluate under MBRL
     mbrl = MBRL(maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=gamma)
-    mb_log_likelihoods = mbrl.simulate_model_based_rl(transitions)
+    mb_log_likelihoods = mbrl.simulate_model_based_rl(trajectory)
 
     # Evaluate under Q-learning
     maze = SimpleMaze()  # Fresh maze
-    qlearning = QLearningTime(maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=alpha)
-    ql_log_likelihoods = qlearning.simulate_q_learning(transitions)
+    qlearning = QLearningTime(
+        maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=alpha
+    )
+    ql_log_likelihoods = qlearning.simulate_q_learning(trajectory)
 
     return {
         "mbrl": np.array(mb_log_likelihoods),
@@ -40,7 +49,7 @@ def evaluate_trajectory(transitions: np.ndarray, gamma: float = None, alpha: flo
     }
 
 
-def run_inference_experiment(num_datasets: int = None, verbose: bool = True):
+def run_inference_experiment(num_datasets: Optional[int] = None, verbose: bool = True):
     """Run the full model inference experiment.
 
     For each trajectory file from both algorithms, evaluate log-likelihood
@@ -68,7 +77,7 @@ def run_inference_experiment(num_datasets: int = None, verbose: bool = True):
         transitions = load_trajectories("mbrl", i)
 
         if verbose:
-            print(f"\nDataset {i+1}/{num_datasets} (MBRL source)")
+            print(f"\nDataset {i + 1}/{num_datasets} (MBRL source)")
 
         results = evaluate_trajectory(transitions)
 
@@ -77,7 +86,9 @@ def run_inference_experiment(num_datasets: int = None, verbose: bool = True):
 
         if verbose:
             print(f"  MBRL total log-likelihood: {np.sum(results['mbrl']):.2f}")
-            print(f"  Q-learning total log-likelihood: {np.sum(results['qlearning']):.2f}")
+            print(
+                f"  Q-learning total log-likelihood: {np.sum(results['qlearning']):.2f}"
+            )
 
         # Save cumulative log-likelihoods
         save_logprobs(mb_cumsum, "mbrl_true", i)
@@ -89,7 +100,7 @@ def run_inference_experiment(num_datasets: int = None, verbose: bool = True):
         transitions = load_trajectories("q_learning", i)
 
         if verbose:
-            print(f"\nDataset {i+1}/{num_datasets} (Q-learning source)")
+            print(f"\nDataset {i + 1}/{num_datasets} (Q-learning source)")
 
         results = evaluate_trajectory(transitions)
 
@@ -98,7 +109,9 @@ def run_inference_experiment(num_datasets: int = None, verbose: bool = True):
 
         if verbose:
             print(f"  MBRL total log-likelihood: {np.sum(results['mbrl']):.2f}")
-            print(f"  Q-learning total log-likelihood: {np.sum(results['qlearning']):.2f}")
+            print(
+                f"  Q-learning total log-likelihood: {np.sum(results['qlearning']):.2f}"
+            )
 
         # Save cumulative log-likelihoods
         save_logprobs(mb_cumsum, "mbrl_false", i)
@@ -109,8 +122,12 @@ def run_inference_experiment(num_datasets: int = None, verbose: bool = True):
 
 def main():
     parser = argparse.ArgumentParser(description="Run model inference experiment")
-    parser.add_argument("--num-datasets", type=int, default=None,
-                        help="Number of datasets to process (default: all available)")
+    parser.add_argument(
+        "--num-datasets",
+        type=int,
+        default=None,
+        help="Number of datasets to process (default: all available)",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
 
     args = parser.parse_args()

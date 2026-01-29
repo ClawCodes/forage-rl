@@ -5,14 +5,15 @@ from typing import Optional
 
 import numpy as np
 
+from forage_rl import Trajectory
 from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
 
 
-def save_trajectories(data: list, algo_name: str, run_id: int) -> Path:
+def save_trajectories(trajectory: Trajectory, algo_name: str, run_id: int) -> Path:
     """Save trajectory data to organized directory.
 
     Args:
-        data: List of transition tuples
+        trajectory: Instance of Trajectory class.
         algo_name: Algorithm name (e.g., 'mbrl', 'q_learning')
         run_id: Run identifier
 
@@ -22,11 +23,11 @@ def save_trajectories(data: list, algo_name: str, run_id: int) -> Path:
     ensure_directories()
     filename = f"{algo_name}_trajectories_{run_id}.npy"
     filepath = TRAJECTORIES_DIR / filename
-    np.save(filepath, data)
+    np.save(filepath, trajectory.to_numpy())
     return filepath
 
 
-def load_trajectories(algo_name: str, run_id: int) -> np.ndarray:
+def load_trajectories(algo_name: str, run_id: int) -> Trajectory:
     """Load trajectory data from organized directory.
 
     Args:
@@ -38,7 +39,7 @@ def load_trajectories(algo_name: str, run_id: int) -> np.ndarray:
     """
     filename = f"{algo_name}_trajectories_{run_id}.npy"
     filepath = TRAJECTORIES_DIR / filename
-    return np.load(filepath, allow_pickle=True)
+    return Trajectory.from_numpy(np.load(filepath, allow_pickle=True))
 
 
 def save_logprobs(data: np.ndarray, label: str, run_id: int) -> Path:
