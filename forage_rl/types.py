@@ -8,12 +8,11 @@ from pydantic import BaseModel, BeforeValidator
 type SignedInteger = int | signedinteger[Any]
 
 # Pydantic-compatible integer that coerces numpy integers to Python int
-Int = Annotated[int, BeforeValidator(lambda x: int(x))]
+Int = Annotated[SignedInteger, BeforeValidator(lambda x: int(x))]
 
 
 class Transition(BaseModel):
     state: Int
-    time_spent: Int
     action: Int
     reward: float
     next_state: Int
@@ -21,6 +20,26 @@ class Transition(BaseModel):
     def __iter__(self):
         for name, _ in self.model_fields.items():
             yield getattr(self, name)
+
+
+class TimedTransition(Transition):
+    time_spent: Int
+
+    def __iter__(self):
+        for name, _ in self.model_fields.items():
+            yield getattr(self, name)
+
+    @classmethod
+    def from_transition_time(
+        cls, transition: Transition, time: SignedInteger
+    ) -> "TimedTransition":
+        return cls(
+            state=transition.state,
+            action=transition.action,
+            reward=transition.reward,
+            next_state=transition.next_state,
+            time_spent=time,
+        )
 
 
 class Trajectory(BaseModel):
@@ -31,11 +50,11 @@ class Trajectory(BaseModel):
         "reward",
         "next_state",
     ]
-    transitions: list[Transition]
+    transitions: list[TimedTransition]
 
     @classmethod
     def from_numpy(cls, arr: np.ndarray) -> "Trajectory":
-        transitions = [Transition(**dict(zip(cls.fields, row))) for row in arr]
+        transitions = [TimedTransition(**dict(zip(cls.fields, row))) for row in arr]
         return cls(transitions=transitions)
 
     def to_numpy(self) -> np.ndarray:

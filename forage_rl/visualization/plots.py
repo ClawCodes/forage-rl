@@ -6,6 +6,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 
+from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.utils import get_run_count, load_logprobs
@@ -268,6 +269,41 @@ def plot_q_values(q_agent: BaseAgent, show: bool = True):
     )
     plt.colorbar(im, ax=ax)
     plt.tight_layout()
+    if show:
+        plt.show()
+    return fig
+
+
+def plot_q_history(q_agent: QLearning, show: bool = True):
+    """Plot Q-value history over training episodes."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    maze = q_agent.maze
+    labels = [
+        f"S{s} {'Stay' if a == 0 else 'Leave'}"
+        for s in range(maze.num_states)
+        for a in range(maze.num_actions)
+    ]
+
+    for i, history in enumerate(q_agent.q_history):
+        if history:
+            ax.plot(history, label=labels[i])
+
+    ax.set_title("Q-values over time")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Q-value")
+    ax.legend()
+    if show:
+        plt.show()
+    return fig
+
+
+def plot_returns(q_agent: QLearning, show: bool = True):
+    """Plot total reward over training episodes."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(q_agent.returns)
+    ax.set_title("Returns over episodes")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Return")
     if show:
         plt.show()
     return fig

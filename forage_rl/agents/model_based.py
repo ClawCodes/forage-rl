@@ -6,7 +6,7 @@ import numpy as np
 from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
-from forage_rl import Transition, Trajectory
+from forage_rl import TimedTransition, Trajectory
 
 
 class MBRL(BaseAgent):
@@ -106,24 +106,21 @@ class MBRL(BaseAgent):
             while not done:
                 # Choose action using Boltzmann exploration
                 action = self.choose_action_boltzmann(self.q_table[state, time_spent])
-                next_state, reward, done = self.maze.step(action)
+                transition, done = self.maze.step(action)
 
-                transitions.append(
-                    Transition(
-                        state=state,
-                        time_spent=time_spent,
-                        action=action,
-                        reward=reward,
-                        next_state=next_state,
-                    )
+                timed_transition = TimedTransition.from_transition_time(
+                    transition, time_spent
                 )
+
+                transitions.append(timed_transition)
 
                 # Update reward estimate
                 self.count[state, time_spent, action] += 1
                 self.r_table[state, time_spent, action] += (
-                    reward - self.r_table[state, time_spent, action]
+                    timed_transition.reward - self.r_table[state, time_spent, action]
                 ) / self.count[state, time_spent, action]
 
+                next_state = timed_transition.next_state
                 if state == next_state:
                     time_spent += 1
                 else:

@@ -2,7 +2,6 @@
 
 from typing import List, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 from forage_rl import SignedInteger, Trajectory
 
@@ -10,7 +9,8 @@ from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
-from forage_rl import Transition
+from forage_rl import TimedTransition
+from ..types import Transition
 
 
 class QLearning(BaseAgent):
@@ -37,6 +37,7 @@ class QLearning(BaseAgent):
         self.min_epsilon = min_epsilon
         self.decay_rate = decay_rate
         self.q_table = np.zeros((maze.num_states, maze.num_actions))
+        # TODO: should the following be tracked for all Q-agents?
         self.q_history: List[List[float]] = [
             [] for _ in range(maze.num_states * maze.num_actions)
         ]
@@ -48,14 +49,12 @@ class QLearning(BaseAgent):
             return np.random.choice(self.maze.num_actions)
         return np.argmax(self.q_table[state])
 
-    def update_q_value(
-        self, state: int, action: SignedInteger, reward: float, next_state: int
-    ):
+    def update_q_value(self, t: Transition):
         """Update Q-value using TD learning."""
-        best_next_action = np.argmax(self.q_table[next_state])
-        td_target = reward + self.gamma * self.q_table[next_state, best_next_action]
-        td_error = td_target - self.q_table[state, action]
-        self.q_table[state, action] += self.alpha * td_error
+        best_next_action = np.argmax(self.q_table[t.next_state])
+        td_target = t.reward + self.gamma * self.q_table[t.next_state, best_next_action]
+        td_error = td_target - self.q_table[t.state, t.action]
+        self.q_table[t.state, t.action] += self.alpha * td_error
 
     def train(self, verbose: bool = True):
         """Train the agent."""
@@ -66,10 +65,10 @@ class QLearning(BaseAgent):
 
             while not done:
                 action = self.choose_action(state)
-                next_state, reward, done = self.maze.step(action)
-                self.update_q_value(state, action, reward, next_state)
-                state = next_state
-                total_reward += reward
+                transition, done = self.maze.step(action)
+                self.update_q_value(transition)
+                state = transition.next_state
+                total_reward += transition.reward
 
             # Track Q-values for analysis
             for s in range(self.maze.num_states):
@@ -87,42 +86,10 @@ class QLearning(BaseAgent):
             print("Final Q-table:")
             print(self.q_table)
 
-    # TODO: CONTINUE REFACTOR
-    def plot_q_values_over_time(self, show: bool = True):
-        """Plot Q-value evolution over training episodes."""
-        fig, ax = plt.subplots(figsize=(10, 6))
-        labels = [
-            f"S{s} {'Stay' if a == 0 else 'Leave'}"
-            for s in range(self.maze.num_states)
-            for a in range(self.maze.num_actions)
-        ]
-
-        for i, history in enumerate(self.q_history):
-            if history:
-                ax.plot(history, label=labels[i])
-
-        ax.set_title("Q-values over time")
-        ax.set_xlabel("Episode")
-        ax.set_ylabel("Q-value")
-        ax.legend()
-        if show:
-            plt.show()
-        return fig
-
-    def plot_returns(self, show: bool = True):
-        """Plot returns over training episodes."""
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(self.returns)
-        ax.set_title("Returns over episodes")
-        ax.set_xlabel("Episode")
-        ax.set_ylabel("Return")
-        if show:
-            plt.show()
-        return fig
-
 
 class QLearningTime(BaseAgent):
-    """Q-learning agent with time-aware state representation. (i.e. Q(s, t, a))
+    """
+    Q-learning agent with time-aware state representation. (i.e. Q(s, t, a))
 
     Uses Boltzmann exploration and incorporates time spent in state.
     """
@@ -130,42 +97,35 @@ class QLearningTime(BaseAgent):
     def __init__(
         self,
         maze,
-        num_episodes: Optional[int] = None,
-        alpha: Optional[float] = None,
-        gamma: Optional[float] = None,
-        beta: int | float = DefaultParams.BETA,
+        num_episodes: int = DefaultParams.NUM_EPISODES,
+        alpha: float = DefaultParams.ALPHA,
+        gamma: float = DefaultParams.GAMMA,
+        beta: float = DefaultParams.BETA,
     ):
         super().__init__(maze, beta)
-        self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
-        self.alpha = alpha or DefaultParams.ALPHA
-        self.gamma = gamma or DefaultParams.GAMMA
+        self.num_episodes = num_episodes
+        self.alpha = alpha
+        self.gamma = gamma
         self.q_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
 
     def choose_action(self, state: int, time_spent: int) -> int:
         """Choose action using Boltzmann exploration."""
         return self.choose_action_boltzmann(self.q_table[state, time_spent])
 
-    def update_q_value(
-        self,
-        state: int,
-        time_spent: int,
-        action: SignedInteger,
-        reward: float,
-        next_state: int,
-    ):
+    def update_q_value(self, t: TimedTransition):
         """Update Q-value using TD learning."""
-        if state == next_state:
-            next_time_spent = min(time_spent + 1, self.maze.horizon - 1)
+        if t.state == t.next_state:
+            next_time_spent = min(t.time_spent + 1, self.maze.horizon - 1)
         else:
             next_time_spent = 0
 
-        best_next_action = np.argmax(self.q_table[next_state, next_time_spent])
+        best_next_action = np.argmax(self.q_table[t.next_state, next_time_spent])
         td_target = (
-            reward
-            + self.gamma * self.q_table[next_state, next_time_spent, best_next_action]
+            t.reward
+            + self.gamma * self.q_table[t.next_state, next_time_spent, best_next_action]
         )
-        td_error = td_target - self.q_table[state, time_spent, action]
-        self.q_table[state, time_spent, action] += self.alpha * td_error
+        td_error = td_target - self.q_table[t.state, t.time_spent, t.action]
+        self.q_table[t.state, t.time_spent, t.action] += self.alpha * td_error
 
     def simulate_q_learning(self, trajectory: Trajectory) -> list[float]:
         """Evaluate log-likelihood of transitions under Q-learning updates.
@@ -178,13 +138,15 @@ class QLearningTime(BaseAgent):
         """
         log_likelihoods = []
 
-        for state, time_spent, action, reward, next_state in trajectory:
+        for t in trajectory.transitions:
             # Compute log-likelihood under current policy
-            action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
-            log_likelihoods.append(np.log(action_probs[action]))
+            action_probs = self.boltzmann_action_probs(
+                self.q_table[t.state, t.time_spent]
+            )
+            log_likelihoods.append(np.log(action_probs[t.action]))
 
             # Update Q-table
-            self.update_q_value(state, time_spent, action, reward, next_state)
+            self.update_q_value(t)
 
         return log_likelihoods
 
@@ -210,20 +172,17 @@ class QLearningTime(BaseAgent):
 
             while not done:
                 action = self.choose_action(state, time_spent)
-                next_state, reward, done = self.maze.step(action)
+                transition, done = self.maze.step(action)
 
-                transitions.append(
-                    Transition(
-                        state=state,
-                        time_spent=time_spent,
-                        action=action,
-                        reward=reward,
-                        next_state=next_state,
-                    )
+                timed_transition = TimedTransition.from_transition_time(
+                    transition, time_spent
                 )
 
-                self.update_q_value(state, time_spent, action, reward, next_state)
+                transitions.append(timed_transition)
 
+                self.update_q_value(timed_transition)
+
+                next_state = timed_transition.next_state
                 if state == next_state:
                     time_spent += 1
                 else:

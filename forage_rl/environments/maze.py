@@ -6,6 +6,7 @@ import numpy as np
 
 from forage_rl.config import DefaultParams, MazeParams
 from forage_rl import SignedInteger
+from forage_rl.types import Transition
 
 
 class ForagingReward:
@@ -102,14 +103,18 @@ class Maze:
             r.reset()
         return self.state
 
-    def step(self, action: SignedInteger) -> tuple:
+    def step(self, action: SignedInteger) -> tuple[Transition, bool]:
         """Execute action and return (next_state, reward, done)."""
         new_state = self._get_transition(action)
         reward = self._get_reward(new_state)
+        transition = Transition(
+            state=self.state, action=action, reward=reward, next_state=new_state
+        )
         self.state = new_state
         self.time += 1
         done = self.time >= self.horizon
-        return new_state, reward, done
+        # return new_state, reward, done
+        return transition, done
 
     def _get_reward(self, new_state: int) -> float:
         """Get reward based on state transition."""
@@ -159,9 +164,9 @@ class MazePOMDP(Maze):
 
     def step(self, action: SignedInteger) -> tuple:
         """Execute action and return (observation, reward, done)."""
-        true_state, reward, done = super().step(action)
-        obs = 0 if true_state in [0, 1, 2] else 1
-        return obs, reward, done
+        transition, done = super().step(action)
+        obs = 0 if transition.next_state in [0, 1, 2] else 1
+        return obs, transition.reward, done
 
 
 class SimpleMaze(Maze):
