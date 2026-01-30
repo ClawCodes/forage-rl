@@ -1,7 +1,6 @@
 """Generate training trajectories from MBRL and Q-learning agents."""
 
 import argparse
-from typing import Optional
 
 from forage_rl.environments import SimpleMaze
 from forage_rl.agents import MBRL, QLearningTime
@@ -10,10 +9,10 @@ from forage_rl.config import DefaultParams, ensure_directories
 
 
 def generate_mbrl_trajectories(
-    num_runs: Optional[int] = None,
-    num_episodes: Optional[int] = None,
-    gamma: Optional[float] = None,
-    verbose: Optional[bool] = True,
+    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
+    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
+    gamma: float = DefaultParams.GAMMA,
+    verbose: bool = True,
 ):
     """Generate trajectories from MBRL agent.
 
@@ -23,10 +22,6 @@ def generate_mbrl_trajectories(
         gamma: Discount factor
         verbose: Whether to print progress
     """
-    num_runs = num_runs or DefaultParams.NUM_TRAINING_RUNS
-    num_episodes = num_episodes or DefaultParams.NUM_TRAINING_EPISODES
-    gamma = gamma or DefaultParams.GAMMA
-
     ensure_directories()
 
     for i in range(num_runs):
@@ -45,10 +40,10 @@ def generate_mbrl_trajectories(
 
 
 def generate_qlearning_trajectories(
-    num_runs: Optional[int] = None,
-    num_episodes: Optional[int] = None,
-    alpha: Optional[float] = None,
-    verbose: Optional[bool] = True,
+    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
+    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
+    alpha: float = DefaultParams.ALPHA,
+    verbose: bool = True,
 ):
     """Generate trajectories from Q-learning agent.
 
@@ -58,10 +53,6 @@ def generate_qlearning_trajectories(
         alpha: Learning rate
         verbose: Whether to print progress
     """
-    num_runs = num_runs or DefaultParams.NUM_TRAINING_RUNS
-    num_episodes = num_episodes or DefaultParams.NUM_TRAINING_EPISODES
-    alpha = alpha or DefaultParams.ALPHA
-
     ensure_directories()
 
     for i in range(num_runs):

@@ -3,7 +3,7 @@
 import numpy as np
 
 from forage_rl.config import DefaultParams, MazeParams
-from forage_rl.environments import Maze, SimpleMaze
+from forage_rl.environments import Maze
 
 
 class ValueIterationSolver:
@@ -139,17 +139,3 @@ class ValueIterationSolver:
             for t in range(self.maze.horizon):
                 action = self.maze.get_action_label(int(self.policy[s, t]))
                 print(f"  Time {t}: {action}")
-
-
-if __name__ == "__main__":
-    simple_maze = SimpleMaze()
-    solver = ValueIterationSolver(simple_maze)
-    solver.solve()
-    solver.print_value_function()
-    solver.print_policy()
-
-    standard_maze = Maze()
-    solver = ValueIterationSolver(standard_maze)
-    solver.solve()
-    solver.print_value_function()
-    solver.print_policy()

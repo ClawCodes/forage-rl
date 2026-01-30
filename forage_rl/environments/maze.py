@@ -113,7 +113,7 @@ class Maze:
         self.state = new_state
         self.time += 1
         done = self.time >= self.horizon
-        # return new_state, reward, done
+
         return transition, done
 
     def _get_reward(self, new_state: int) -> float:
@@ -199,14 +199,17 @@ class SimpleMaze(Maze):
             r.reset()
         return self.state
 
-    def step(self, action: SignedInteger) -> tuple:
-        """Execute action and return (next_state, reward, done)."""
+    def step(self, action: SignedInteger) -> tuple[Transition, bool]:
+        """Execute action and return (Transition, done)."""
         new_state = self._get_transition(action)
         reward = self._get_reward(new_state)
+        transition = Transition(
+            state=self.state, action=action, reward=reward, next_state=new_state
+        )
         self.state = new_state
         self.time += 1
         done = self.time >= self.horizon
-        return new_state, reward, done
+        return transition, done
 
     def _get_reward(self, new_state: int) -> float:
         """Get reward based on state transition."""
@@ -223,18 +226,3 @@ class SimpleMaze(Maze):
             return self.state
         else:  # Leave - deterministic transition
             return 1 - self.state
-
-
-if __name__ == "__main__":
-    # Simple test
-    print("Testing SimpleMaze")
-    maze = SimpleMaze()
-    print(f"Initial state: {maze.state}")
-
-    actions = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
-    for step, action in enumerate(actions):
-        action_name = "stay" if action == 0 else "leave"
-        obs, reward, done = maze.step(action)
-        print(
-            f"Step {step}: action={action_name}, state={obs}, reward={reward:.1f}, done={done}"
-        )

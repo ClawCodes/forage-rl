@@ -14,8 +14,8 @@ from forage_rl.config import DefaultParams, ensure_directories
 
 def evaluate_trajectory(
     trajectory: Trajectory,
-    gamma: Optional[float] = None,
-    alpha: Optional[float] = None,
+    gamma: float = DefaultParams.GAMMA,
+    alpha: float = DefaultParams.ALPHA,
 ) -> dict:
     """Evaluate a trajectory under both MBRL and Q-learning models.
 
@@ -27,9 +27,6 @@ def evaluate_trajectory(
     Returns:
         Dictionary with log-likelihoods under each model
     """
-    gamma = gamma or DefaultParams.GAMMA
-    alpha = alpha or DefaultParams.ALPHA
-
     maze = SimpleMaze()
 
     # Evaluate under MBRL

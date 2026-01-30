@@ -31,21 +31,25 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     transitions = load_trajectories("mbrl", mbrl_file_id)
 
     maze = SimpleMaze()
-    mbrl = MBRL(maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA)
+    mbrl = MBRL(
+        maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
+    )
     mb_log_likelihood = mbrl.simulate_model_based_rl(transitions)
     mb_total = np.sum(mb_log_likelihood)
     print(f"MBRL log-likelihood: {mb_total:.4f}")
 
-    maze = SimpleMaze()
-    qlearning = QLearningTime(maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA)
+    maze.reset()
+    qlearning = QLearningTime(
+        maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA
+    )
     ql_log_likelihood = qlearning.simulate_q_learning(transitions)
     ql_total = np.sum(ql_log_likelihood)
     print(f"Q-learning log-likelihood: {ql_total:.4f}")
 
     if mb_total > ql_total:
-        print("Result: MBRL explains the data better (CORRECT)")
+        print("Result: MBRL explains the data better")
     else:
-        print("Result: Q-learning explains the data better (INCORRECT)")
+        print("Result: Q-learning explains the data better")
 
     # Test on Q-learning-generated trajectory
     print("\n" + "=" * 60)
@@ -55,21 +59,25 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     transitions = load_trajectories("q_learning", qlearning_file_id)
 
     maze = SimpleMaze()
-    mbrl = MBRL(maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA)
+    mbrl = MBRL(
+        maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
+    )
     mb_log_likelihood = mbrl.simulate_model_based_rl(transitions)
     mb_total = np.sum(mb_log_likelihood)
     print(f"MBRL log-likelihood: {mb_total:.4f}")
 
     maze = SimpleMaze()
-    qlearning = QLearningTime(maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA)
+    qlearning = QLearningTime(
+        maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA
+    )
     ql_log_likelihood = qlearning.simulate_q_learning(transitions)
     ql_total = np.sum(ql_log_likelihood)
     print(f"Q-learning log-likelihood: {ql_total:.4f}")
 
     if ql_total > mb_total:
-        print("Result: Q-learning explains the data better (CORRECT)")
+        print("Result: Q-learning explains the data better")
     else:
-        print("Result: MBRL explains the data better (INCORRECT)")
+        print("Result: MBRL explains the data better")
 
 
 if __name__ == "__main__":
