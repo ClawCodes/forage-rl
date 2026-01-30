@@ -1,16 +1,16 @@
 """Model-based reinforcement learning agent."""
 
-from typing import Optional
-
 import numpy as np
 from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
 from forage_rl import TimedTransition, Trajectory
+from ..environments import Maze
 
 
 class MBRL(BaseAgent):
-    """Model-based RL using value iteration with known dynamics and learned rewards.
+    """
+    Model-based RL using value iteration with known dynamics and learned rewards.
 
     The agent learns the reward function through experience while assuming
     the transition dynamics are known. After each observation, it performs
@@ -19,16 +19,16 @@ class MBRL(BaseAgent):
 
     def __init__(
         self,
-        maze,
-        num_episodes: Optional[int] = None,
-        gamma: Optional[float] = None,
-        num_planning_steps: Optional[int] = None,
-        beta: float | int = DefaultParams.BETA,
+        maze: Maze,
+        num_episodes: int = DefaultParams.NUM_EPISODES,
+        gamma: float = DefaultParams.GAMMA,
+        num_planning_steps: int = DefaultParams.NUM_PLANNING_STEPS,
+        beta: float = DefaultParams.BETA,
     ):
         super().__init__(maze, beta)
-        self.num_episodes = num_episodes or DefaultParams.NUM_EPISODES
-        self.gamma = gamma or DefaultParams.GAMMA
-        self.num_planning_steps = num_planning_steps or DefaultParams.NUM_PLANNING_STEPS
+        self.num_episodes = num_episodes
+        self.gamma = gamma
+        self.num_planning_steps = num_planning_steps
         self.q_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
         self.r_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
         self.count = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
@@ -45,17 +45,21 @@ class MBRL(BaseAgent):
                             next_state = s
                             next_time = min(t + 1, self.maze.horizon - 1)
                         else:  # Leave - deterministic transition for SimpleMaze
-                            next_state = (
-                                1 - s if self.maze.num_states == 2 else (s + 3) % 6
-                            )
-                            next_time = 0
+                            # TODO: only works for simple maze - move transition dynamics to maze and make general
+                            # stochastic transitions
+                            if s == 0:
+                                next_state = 1
+                            else:
+                                next_state = 0
+                            next_time = 0  # reset time when leaving
 
                         self.q_table[s, t, a] = r_sa + self.gamma * np.max(
                             self.q_table[next_state, next_time]
                         )
 
     def simulate_model_based_rl(self, trajectory: Trajectory) -> list[float]:
-        """Evaluate log-likelihood of transitions under model-based RL.
+        """
+        Evaluate log-likelihood of transitions under model-based RL.
 
         Args:
             trajectory: instance of Trajectory
@@ -65,7 +69,7 @@ class MBRL(BaseAgent):
         """
         log_likelihoods = []
 
-        for state, time_spent, action, reward, next_state in trajectory:
+        for state, action, reward, next_state, time_spent in trajectory:
             # Compute log-likelihood under current policy
             action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
             log_likelihoods.append(np.log(action_probs[action]))
@@ -81,13 +85,10 @@ class MBRL(BaseAgent):
 
         return log_likelihoods
 
-    def train(
-        self, save_path: Optional[str] = None, verbose: bool = True
-    ) -> Trajectory:
+    def train(self, verbose: bool = True) -> Trajectory:
         """Train the agent and optionally save trajectories.
 
         Args:
-            save_path: Path to save trajectories (if provided)
             verbose: Whether to print progress
 
         Returns:
@@ -130,10 +131,6 @@ class MBRL(BaseAgent):
 
                 # Perform planning after each transition
                 self.q_value_iteration()
-
-        if save_path:
-            print(f"Saving trajectories to {save_path}")
-            np.save(save_path, transitions)
 
         if verbose:
             print("Training completed.")
