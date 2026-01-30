@@ -5,7 +5,7 @@ from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
 from forage_rl import TimedTransition, Trajectory
-from ..environments import Maze
+from forage_rl.environments import Maze
 
 
 class MBRL(BaseAgent):

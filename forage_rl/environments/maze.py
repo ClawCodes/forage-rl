@@ -49,7 +49,7 @@ class Maze:
     def __init__(
         self,
         decays: Optional[List[float]] = None,
-        horizon: Optional[int] = None,
+        horizon: int = DefaultParams.HORIZON,
         num_states: int = 2,
         num_actions: int = 2,
         state: int = 0,
@@ -59,7 +59,7 @@ class Maze:
         action_labels: Optional[List[str]] = None,
     ) -> None:
         self.decays = decays or MazeParams.FULL_MAZE_DECAYS
-        self.horizon = horizon or DefaultParams.HORIZON
+        self.horizon = horizon
         self.num_states = num_states
         self.num_actions = num_actions
         self.action_labels = self._set_action_labels(
@@ -73,7 +73,7 @@ class Maze:
         self.rewards = rewards or self._init_rewards()
 
     def _set_state_labels(self, state_labels: List[str]) -> List[str]:
-        if len(state_labels) != self.num_states:
+        if len(set(state_labels)) != self.num_states:
             raise ValueError(f"Number of states {self.num_states} does not match")
 
         return state_labels
@@ -158,7 +158,9 @@ class MazePOMDP(Maze):
     hiding the specific patch identity.
     """
 
-    def __init__(self, decays: Optional[list] = None, horizon: Optional[int] = None):
+    def __init__(
+        self, decays: Optional[list] = None, horizon: int = DefaultParams.HORIZON
+    ):
         super().__init__(decays, horizon)
         self.num_states = 2  # Observation space
 

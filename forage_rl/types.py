@@ -2,7 +2,7 @@ from typing import Annotated, Any, ClassVar, List
 
 import numpy as np
 from numpy import signedinteger
-from pydantic import BaseModel, BeforeValidator
+from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 # An integer type accepting python and numpy integer types
 type SignedInteger = int | signedinteger[Any]
@@ -12,6 +12,8 @@ Int = Annotated[SignedInteger, BeforeValidator(lambda x: int(x))]
 
 
 class Transition(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     state: Int
     action: Int
     reward: float
