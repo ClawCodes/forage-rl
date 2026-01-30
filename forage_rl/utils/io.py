@@ -5,7 +5,7 @@ from typing import Optional
 
 import numpy as np
 
-from forage_rl import Trajectory
+from forage_rl import Transition, TimedTransition, Trajectory
 from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
 
 
@@ -30,16 +30,31 @@ def save_trajectories(trajectory: Trajectory, algo_name: str, run_id: int) -> Pa
 def load_trajectories(algo_name: str, run_id: int) -> Trajectory:
     """Load trajectory data from organized directory.
 
+    Automatically detects the transition type based on array shape:
+    - 4 columns → Transition
+    - 5 columns → TimedTransition
+
     Args:
         algo_name: Algorithm name (e.g., 'mbrl', 'q_learning')
         run_id: Run identifier
 
     Returns:
-        Array of transition tuples
+        Trajectory containing the loaded transitions
     """
     filename = f"{algo_name}_trajectories_{run_id}.npy"
     filepath = TRAJECTORIES_DIR / filename
-    return Trajectory.from_numpy(np.load(filepath, allow_pickle=True))
+    arr = np.load(filepath, allow_pickle=True)
+
+    # Auto-detect transition type from column count
+    num_cols = arr.shape[1] if arr.ndim > 1 else len(arr[0])
+    if num_cols == len(Transition.model_fields):
+        transition_cls = Transition
+    elif num_cols == len(TimedTransition.model_fields):
+        transition_cls = TimedTransition
+    else:
+        raise ValueError(f"Unknown transition format with {num_cols} columns")
+
+    return Trajectory.from_numpy(arr, transition_cls)
 
 
 def save_logprobs(data: np.ndarray, label: str, run_id: int) -> Path:
