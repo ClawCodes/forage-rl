@@ -3,7 +3,7 @@
 from typing import List
 
 import numpy as np
-from forage_rl import SignedInteger, Trajectory
+from forage_rl import Trajectory
 
 from .base import BaseAgent
 
@@ -43,11 +43,11 @@ class QLearning(BaseAgent):
         ]
         self.returns: List[float] = []
 
-    def choose_action(self, state: int) -> SignedInteger:
+    def choose_action(self, state: int) -> int:
         """Choose action using epsilon-greedy exploration."""
         if np.random.rand() < self.epsilon:
-            return np.random.choice(self.maze.num_actions)
-        return np.argmax(self.q_table[state])
+            return int(np.random.choice(self.maze.num_actions))
+        return int(np.argmax(self.q_table[state]))
 
     def update_q_value(self, t: Transition):
         """Update Q-value using TD learning."""

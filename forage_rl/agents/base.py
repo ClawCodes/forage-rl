@@ -25,7 +25,7 @@ class BaseAgent:
     def choose_action_boltzmann(self, q_values: np.ndarray) -> int:
         """Choose action using Boltzmann exploration."""
         action_probs = self.boltzmann_action_probs(q_values)
-        return np.random.choice(len(q_values), p=action_probs)
+        return int(np.random.choice(len(q_values), p=action_probs))
 
     def get_policy(self) -> np.ndarray:
         """Extract greedy policy from Q-table."""
