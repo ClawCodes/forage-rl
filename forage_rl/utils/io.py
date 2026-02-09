@@ -9,6 +9,14 @@ from forage_rl import Transition, TimedTransition, Trajectory
 from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
 
 
+def _ensure_numeric_array(array: np.ndarray, context: str) -> None:
+    """Validate that loaded numpy data is numeric."""
+    if not isinstance(array, np.ndarray):
+        raise ValueError(f"{context} must be a numpy array")
+    if not np.issubdtype(array.dtype, np.number):
+        raise ValueError(f"{context} must contain numeric values, got {array.dtype}")
+
+
 def save_trajectories(trajectory: Trajectory, algo_name: str, run_id: int) -> Path:
     """Save trajectory data to organized directory.
 
@@ -43,10 +51,15 @@ def load_trajectories(algo_name: str, run_id: int) -> Trajectory:
     """
     filename = f"{algo_name}_trajectories_{run_id}.npy"
     filepath = TRAJECTORIES_DIR / filename
-    arr = np.load(filepath, allow_pickle=True)
+    arr = np.load(filepath, allow_pickle=False)
+    _ensure_numeric_array(arr, "Trajectory data")
+    if arr.ndim != 2:
+        raise ValueError(
+            f"Trajectory data must be 2D with shape (num_steps, num_fields), got shape {arr.shape}"
+        )
 
     # Auto-detect transition type from column count
-    num_cols = arr.shape[1] if arr.ndim > 1 else len(arr[0])
+    num_cols = arr.shape[1]
     if num_cols == len(Transition.model_fields):
         transition_cls = Transition
     elif num_cols == len(TimedTransition.model_fields):
@@ -87,7 +100,13 @@ def load_logprobs(label: str, run_id: int) -> np.ndarray:
     """
     filename = f"{label}_log_likelihoods_{run_id}.npy"
     filepath = LOGPROBS_DIR / filename
-    return np.load(filepath, allow_pickle=True)
+    arr = np.load(filepath, allow_pickle=False)
+    _ensure_numeric_array(arr, "Log probability data")
+    if arr.ndim != 1:
+        raise ValueError(
+            f"Log probability data must be a 1D array, got shape {arr.shape}"
+        )
+    return arr
 
 
 def list_trajectory_files(algo_name: Optional[str] = None) -> list:
@@ -132,3 +151,8 @@ def get_run_count(algo_name: str) -> int:
         Number of trajectory files
     """
     return len(list_trajectory_files(algo_name))
+
+
+def get_logprob_run_count(label: str) -> int:
+    """Get the number of log-probability files for a given label."""
+    return len(list_logprob_files(label))

@@ -9,7 +9,30 @@ import numpy as np
 from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
 from forage_rl.config import FIGURES_DIR, ensure_directories
-from forage_rl.utils import get_run_count, load_logprobs
+from forage_rl.utils import get_logprob_run_count, load_logprobs
+
+
+def _resolve_num_datasets(requested_num_datasets: Optional[int]) -> int:
+    """Resolve requested dataset count against available log-prob files."""
+    available_num_datasets = min(
+        get_logprob_run_count("mbrl_true"),
+        get_logprob_run_count("ql_false"),
+        get_logprob_run_count("mbrl_false"),
+        get_logprob_run_count("ql_true"),
+    )
+
+    if requested_num_datasets is None:
+        return available_num_datasets
+    if requested_num_datasets < 0:
+        raise ValueError(f"num_datasets must be >= 0, got {requested_num_datasets}")
+    if requested_num_datasets > available_num_datasets:
+        print(
+            "Warning: requested "
+            f"{requested_num_datasets} datasets but only "
+            f"{available_num_datasets} are available; "
+            f"clamping to {available_num_datasets}."
+        )
+    return min(requested_num_datasets, available_num_datasets)
 
 
 def plot_model_comparison(
@@ -22,19 +45,16 @@ def plot_model_comparison(
         save: Whether to save the figure
         show: Whether to display the figure
     """
-    num_datasets = num_datasets or min(
-        get_run_count("mbrl"),
-        get_run_count("q_learning"),
-    )
+    dataset_count = _resolve_num_datasets(num_datasets)
 
-    if num_datasets == 0:
+    if dataset_count == 0:
         print("No log probability files found. Run model_inference.py first.")
         return
 
     mb_accuracies = []
     ql_accuracies = []
 
-    for i in range(num_datasets):
+    for i in range(dataset_count):
         # MBRL-generated data: MBRL should have higher likelihood
         mb_logprobs = load_logprobs("mbrl_true", i)
         ql_logprobs = load_logprobs("ql_false", i)
@@ -106,18 +126,15 @@ def plot_cumulative_sum_accuracy(
         save: Whether to save the figure
         show: Whether to display the figure
     """
-    num_datasets = num_datasets or min(
-        get_run_count("mbrl"),
-        get_run_count("q_learning"),
-    )
+    dataset_count = _resolve_num_datasets(num_datasets)
 
-    if num_datasets == 0:
+    if dataset_count == 0:
         print("No log probability files found. Run model_inference.py first.")
         return
 
     accuracies = []
 
-    for j in range(num_datasets):
+    for j in range(dataset_count):
         # MBRL-generated data
         mb_cumsum = load_logprobs("mbrl_true", j)
         ql_cumsum = load_logprobs("ql_false", j)

@@ -1,0 +1,41 @@
+[maze]
+name = "simple"
+horizon = 100
+initial_state = 0
+action_labels = ["stay", "leave"]
+
+[[states]]
+id = 0
+label = "Upper Patch"
+decay = 0.2
+observation_group = 0
+
+[[states]]
+id = 1
+label = "Lower Patch"
+decay = 3.0
+observation_group = 1
+
+[[transitions]]
+state = 0
+action = 0
+next_state = 0
+prob = 1.0
+
+[[transitions]]
+state = 0
+action = 1
+next_state = 1
+prob = 1.0
+
+[[transitions]]
+state = 1
+action = 0
+next_state = 1
+prob = 1.0
+
+[[transitions]]
+state = 1
+action = 1
+next_state = 0
+prob = 1.0

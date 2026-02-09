@@ -32,7 +32,7 @@ class Transition(BaseModel):
 
     def __iter__(self):
         """Iterate over field values in definition order."""
-        for name in self.model_fields:
+        for name in self.__class__.model_fields:
             yield getattr(self, name)
 
 

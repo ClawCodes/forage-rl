@@ -1,11 +1,15 @@
 """Model-based reinforcement learning agent."""
 
+from typing import Optional
+
 import numpy as np
 from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
 from forage_rl import TimedTransition, Trajectory
 from forage_rl.environments import Maze
+
+LOG_PROB_EPSILON = 1e-12
 
 
 class MBRL(BaseAgent):
@@ -24,61 +28,89 @@ class MBRL(BaseAgent):
         gamma: float = DefaultParams.GAMMA,
         num_planning_steps: int = DefaultParams.NUM_PLANNING_STEPS,
         beta: float = DefaultParams.BETA,
+        seed: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
     ):
-        super().__init__(maze, beta)
+        """Initialize model-based agent with learned rewards and planning buffers."""
+        super().__init__(maze, beta, seed=seed, rng=rng)
         self.num_episodes = num_episodes
         self.gamma = gamma
         self.num_planning_steps = num_planning_steps
         self.q_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
         self.r_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
-        self.count = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
+        self.visit_counts = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
 
     def q_value_iteration(self):
         """Perform Q-value iteration using learned rewards and known transitions."""
         for _ in range(self.num_planning_steps):
-            for s in range(self.maze.num_states):
-                for t in range(self.maze.horizon):
-                    for a in range(self.maze.num_actions):
-                        r_sa = self.r_table[s, t, a]
+            for state_idx in range(self.maze.num_states):
+                for time_spent_idx in range(self.maze.horizon):
+                    for action_idx in range(self.maze.num_actions):
+                        estimated_reward = self.r_table[
+                            state_idx, time_spent_idx, action_idx
+                        ]
 
-                        if a == 0:  # Stay
-                            next_state = s
-                            next_time = min(t + 1, self.maze.horizon - 1)
-                        else:  # Leave - deterministic transition for SimpleMaze
-                            # TODO: only works for simple maze - move transition dynamics to maze and make general
-                            # stochastic transitions
-                            if s == 0:
-                                next_state = 1
+                        expected_next_value = 0.0
+                        for next_state_idx, transition_prob in self.maze.transition_distribution(
+                            state_idx, action_idx
+                        ):
+                            transition_duration = self.maze.transition_duration(
+                                state_idx, action_idx, next_state_idx
+                            )
+                            if next_state_idx == state_idx:
+                                next_time_spent_idx = min(
+                                    time_spent_idx + transition_duration,
+                                    self.maze.horizon - 1,
+                                )
                             else:
-                                next_state = 0
-                            next_time = 0  # reset time when leaving
+                                next_time_spent_idx = 0
 
-                        self.q_table[s, t, a] = r_sa + self.gamma * np.max(
-                            self.q_table[next_state, next_time]
+                            expected_next_value += transition_prob * np.max(
+                                self.q_table[next_state_idx, next_time_spent_idx]
+                            )
+
+                        self.q_table[state_idx, time_spent_idx, action_idx] = (
+                            estimated_reward + self.gamma * expected_next_value
                         )
 
-    def simulate_model_based_rl(self, trajectory: Trajectory) -> list[float]:
+    def simulate_model_based_rl(
+        self, timed_trajectory: Trajectory[TimedTransition]
+    ) -> list[float]:
         """
         Evaluate log-likelihood of transitions under model-based RL.
 
         Args:
-            trajectory: instance of Trajectory
+            timed_trajectory: Trajectory containing only TimedTransition entries.
 
         Returns:
             List of log-likelihoods for each transition
         """
         log_likelihoods = []
 
-        for state, action, reward, next_state, time_spent in trajectory:
+        for transition in timed_trajectory.transitions:
+            if not isinstance(transition, TimedTransition):
+                raise TypeError(
+                    "TimedTransition required; plain Transition trajectories are unsupported for time-indexed simulation."
+                )
+            state_idx = transition.state
+            action_idx = transition.action
+            reward_value = transition.reward
+            time_spent_idx = transition.time_spent
+
             # Compute log-likelihood under current policy
-            action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
-            log_likelihoods.append(np.log(action_probs[action]))
+            action_probs = self.boltzmann_action_probs(
+                self.q_table[state_idx, time_spent_idx]
+            )
+            selected_prob = float(
+                np.clip(action_probs[action_idx], LOG_PROB_EPSILON, 1.0)
+            )
+            log_likelihoods.append(np.log(selected_prob))
 
             # Update reward estimate with running average
-            self.count[state, time_spent, action] += 1
-            self.r_table[state, time_spent, action] += (
-                reward - self.r_table[state, time_spent, action]
-            ) / self.count[state, time_spent, action]
+            self.visit_counts[state_idx, time_spent_idx, action_idx] += 1
+            self.r_table[state_idx, time_spent_idx, action_idx] += (
+                reward_value - self.r_table[state_idx, time_spent_idx, action_idx]
+            ) / self.visit_counts[state_idx, time_spent_idx, action_idx]
 
             # Perform planning
             self.q_value_iteration()
@@ -100,34 +132,37 @@ class MBRL(BaseAgent):
             if verbose:
                 print(f"Episode {episode}")
 
-            state = self.maze.reset()
-            time_spent = 0
+            state_idx = self.maze.reset()
+            time_spent_idx = 0
             done = False
 
             while not done:
                 # Choose action using Boltzmann exploration
-                action = self.choose_action_boltzmann(self.q_table[state, time_spent])
-                transition, done = self.maze.step(action)
+                action_idx = self.choose_action_boltzmann(
+                    self.q_table[state_idx, time_spent_idx]
+                )
+                transition, done = self.maze.step(action_idx)
 
                 timed_transition = TimedTransition.from_transition_time(
-                    transition, time_spent
+                    transition, time_spent_idx
                 )
 
                 transitions.append(timed_transition)
 
                 # Update reward estimate
-                self.count[state, time_spent, action] += 1
-                self.r_table[state, time_spent, action] += (
-                    timed_transition.reward - self.r_table[state, time_spent, action]
-                ) / self.count[state, time_spent, action]
+                self.visit_counts[state_idx, time_spent_idx, action_idx] += 1
+                self.r_table[state_idx, time_spent_idx, action_idx] += (
+                    timed_transition.reward
+                    - self.r_table[state_idx, time_spent_idx, action_idx]
+                ) / self.visit_counts[state_idx, time_spent_idx, action_idx]
 
-                next_state = timed_transition.next_state
-                if state == next_state:
-                    time_spent += 1
+                next_state_idx = timed_transition.next_state
+                if state_idx == next_state_idx:
+                    time_spent_idx += 1
                 else:
-                    time_spent = 0
+                    time_spent_idx = 0
 
-                state = next_state
+                state_idx = next_state_idx
 
                 # Perform planning after each transition
                 self.q_value_iteration()

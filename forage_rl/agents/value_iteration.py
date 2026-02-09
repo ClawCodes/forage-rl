@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from forage_rl.config import DefaultParams, MazeParams
+from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
 
 
@@ -20,6 +20,7 @@ class ValueIterationSolver:
         gamma: float = DefaultParams.GAMMA,
         convergence_threshold: float = DefaultParams.CONVERGENCE_THRESHOLD,
     ):
+        """Initialize value and policy tables for a finite-horizon maze."""
         self.maze = maze
         self.gamma = gamma
         self.threshold = convergence_threshold
@@ -45,26 +46,7 @@ class ValueIterationSolver:
 
         Returns the possible next states and their probabilities.
         """
-        if action == 0:  # Stay
-            return [(state, 1.0)]
-
-        if self.maze.num_states == 2:
-            # Deterministic transition for SimpleMaze
-            return [(1 - state, 1.0)]
-
-        # Leave action - determine target states based on maze structure
-        mid_point = self.maze.num_states // 2
-        upper_patch = list(range(mid_point))
-        lower_patch = list(range(mid_point, self.maze.num_states))
-
-        # Stochastic transitions for full maze
-        probs = MazeParams.TRANSITION_PROBS
-        if state in upper_patch:
-            targets = lower_patch
-        else:
-            targets = upper_patch
-
-        return [(targets[i], probs[i]) for i in range(len(targets))]
+        return self.maze.transition_distribution(state, action)
 
     def _compute_action_value(self, state: int, time: int, action: int) -> float:
         """
@@ -74,10 +56,13 @@ class ValueIterationSolver:
         """
         expected_value = 0.0
         for next_state, prob in self._get_transition_probs(state, action):
+            transition_duration = self.maze.transition_duration(
+                state, action, next_state
+            )
             reward = self._get_expected_reward(state, time, action)
-            if action == 0:  # Stay - time increments
-                next_time = min(time + 1, self.maze.horizon - 1)
-            else:  # Leave - time resets
+            if next_state == state:  # Stayed in patch, so time accumulates.
+                next_time = min(time + transition_duration, self.maze.horizon - 1)
+            else:  # Moved to another patch; patch-local time resets.
                 next_time = 0
             expected_value += prob * (
                 reward + self.gamma * self.V[next_state, next_time]

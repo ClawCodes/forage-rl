@@ -1,0 +1,185 @@
+[maze]
+name = "full"
+horizon = 100
+initial_state = 0
+action_labels = ["stay", "leave"]
+
+[[states]]
+id = 0
+label = "Upper Patch"
+decay = 0.5
+observation_group = 0
+
+[[states]]
+id = 1
+label = "Upper Patch"
+decay = 2.0
+observation_group = 0
+
+[[states]]
+id = 2
+label = "Upper Patch"
+decay = 0.1
+observation_group = 0
+
+[[states]]
+id = 3
+label = "Lower Patch"
+decay = 0.1
+observation_group = 1
+
+[[states]]
+id = 4
+label = "Lower Patch"
+decay = 2.0
+observation_group = 1
+
+[[states]]
+id = 5
+label = "Lower Patch"
+decay = 3.0
+observation_group = 1
+
+[[transitions]]
+state = 0
+action = 0
+next_state = 0
+prob = 1.0
+
+[[transitions]]
+state = 0
+action = 1
+next_state = 3
+prob = 0.15
+
+[[transitions]]
+state = 0
+action = 1
+next_state = 4
+prob = 0.35
+
+[[transitions]]
+state = 0
+action = 1
+next_state = 5
+prob = 0.50
+
+[[transitions]]
+state = 1
+action = 0
+next_state = 1
+prob = 1.0
+
+[[transitions]]
+state = 1
+action = 1
+next_state = 3
+prob = 0.15
+
+[[transitions]]
+state = 1
+action = 1
+next_state = 4
+prob = 0.35
+
+[[transitions]]
+state = 1
+action = 1
+next_state = 5
+prob = 0.50
+
+[[transitions]]
+state = 2
+action = 0
+next_state = 2
+prob = 1.0
+
+[[transitions]]
+state = 2
+action = 1
+next_state = 3
+prob = 0.15
+
+[[transitions]]
+state = 2
+action = 1
+next_state = 4
+prob = 0.35
+
+[[transitions]]
+state = 2
+action = 1
+next_state = 5
+prob = 0.50
+
+[[transitions]]
+state = 3
+action = 0
+next_state = 3
+prob = 1.0
+
+[[transitions]]
+state = 3
+action = 1
+next_state = 0
+prob = 0.15
+
+[[transitions]]
+state = 3
+action = 1
+next_state = 1
+prob = 0.35
+
+[[transitions]]
+state = 3
+action = 1
+next_state = 2
+prob = 0.50
+
+[[transitions]]
+state = 4
+action = 0
+next_state = 4
+prob = 1.0
+
+[[transitions]]
+state = 4
+action = 1
+next_state = 0
+prob = 0.15
+
+[[transitions]]
+state = 4
+action = 1
+next_state = 1
+prob = 0.35
+
+[[transitions]]
+state = 4
+action = 1
+next_state = 2
+prob = 0.50
+
+[[transitions]]
+state = 5
+action = 0
+next_state = 5
+prob = 1.0
+
+[[transitions]]
+state = 5
+action = 1
+next_state = 0
+prob = 0.15
+
+[[transitions]]
+state = 5
+action = 1
+next_state = 1
+prob = 0.35
+
+[[transitions]]
+state = 5
+action = 1
+next_state = 2
+prob = 0.50
