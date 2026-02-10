@@ -1,6 +1,12 @@
 """Centralized configuration for paths and hyperparameters."""
 
 from pathlib import Path
+from typing import List, Optional
+
+from gymnasium.spaces import Discrete
+from pydantic import BaseModel, model_validator
+
+from forage_rl.environments import ForagingReward
 
 # Base directories
 BASE_DIR = Path(__file__).parent.parent
@@ -65,3 +71,34 @@ class MazeParams:
         "Lower Patch",
     ]
     SIMPLE_STATES = ["Upper Patch", "Lower Patch"]
+
+
+class EnvConfig(BaseModel):
+    # TODO: determine is state and action space should be Discrete or Space
+    observation_space: Discrete
+    action_space: Discrete
+    decays: List[float]
+    rewards: List[ForagingReward]
+    horizon: int = DefaultParams.HORIZON
+    transition_probs: Optional[List[float]] = None
+
+    @model_validator(mode="after")
+    def validate_lengths(self) -> "EnvConfig":
+        num_states = self.observation_space.n
+        if len(self.decays) != num_states:
+            raise ValueError(
+                f"decays length ({len(self.decays)}) must match number of states ({num_states})"
+            )
+        if len(self.rewards) != num_states:
+            raise ValueError(
+                f"rewards length ({len(self.rewards)}) must match number of states ({num_states})"
+            )
+        return self
+
+
+SimpleEnvConfig = EnvConfig(
+    observation_space=Discrete(2),
+    action_space=Discrete(2),
+    decays=MazeParams.SIMPLE_MAZE_DECAYS,
+    rewards=[ForagingReward(d) for d in MazeParams.SIMPLE_MAZE_DECAYS],
+)
