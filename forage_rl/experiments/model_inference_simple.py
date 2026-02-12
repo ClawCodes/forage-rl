@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from forage_rl.environments import SimpleMaze
+from forage_rl.environments import Maze
 from forage_rl.agents import MBRL, QLearningTime
 from forage_rl.utils import load_trajectories, get_run_count
 from forage_rl.config import DefaultParams
@@ -30,7 +30,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
 
     transitions = load_trajectories("mbrl", mbrl_file_id)
 
-    maze = SimpleMaze()
+    maze = Maze()
     mbrl = MBRL(
         maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
     )
@@ -38,7 +38,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     mb_total = np.sum(mb_log_likelihood)
     print(f"MBRL log-likelihood: {mb_total:.4f}")
 
-    maze.reset()
+    _ = maze.reset()
     qlearning = QLearningTime(
         maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA
     )
@@ -58,7 +58,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
 
     transitions = load_trajectories("q_learning", qlearning_file_id)
 
-    maze = SimpleMaze()
+    maze = Maze()
     mbrl = MBRL(
         maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
     )
@@ -66,7 +66,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     mb_total = np.sum(mb_log_likelihood)
     print(f"MBRL log-likelihood: {mb_total:.4f}")
 
-    maze = SimpleMaze()
+    maze = Maze()
     qlearning = QLearningTime(
         maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA
     )

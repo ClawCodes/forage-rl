@@ -66,15 +66,25 @@ class QLearning(BaseAgent):
     def train(self, verbose: bool = True):
         """Train the agent."""
         for episode in range(self.num_episodes):
-            state_idx = self.maze.reset()
+            _, reset_info = self.maze.reset()
+            state_idx = int(reset_info["state"])
             done = False
             total_reward = 0
 
             while not done:
                 action_idx = self.choose_action(state_idx)
-                transition, done = self.maze.step(action_idx)
+                _, reward_value, terminated, truncated, step_info = self.maze.step(
+                    action_idx
+                )
+                transition = Transition(
+                    state=state_idx,
+                    action=action_idx,
+                    reward=reward_value,
+                    next_state=int(step_info["next_state"]),
+                )
                 self.update_q_value(transition)
                 state_idx = transition.next_state
+                done = terminated or truncated
                 total_reward += transition.reward
 
             # Track Q-values for analysis
@@ -201,14 +211,24 @@ class QLearningTime(BaseAgent):
         transitions = []
 
         for episode in range(self.num_episodes):
-            state_idx = self.maze.reset()
+            _, reset_info = self.maze.reset()
+            state_idx = int(reset_info["state"])
             time_spent_idx = 0
             done = False
             max_time_spent = 0
 
             while not done:
                 action_idx = self.choose_action(state_idx, time_spent_idx)
-                transition, done = self.maze.step(action_idx)
+                _, reward_value, terminated, truncated, step_info = self.maze.step(
+                    action_idx
+                )
+                transition = Transition(
+                    state=state_idx,
+                    action=action_idx,
+                    reward=reward_value,
+                    next_state=int(step_info["next_state"]),
+                )
+                done = terminated or truncated
 
                 timed_transition = TimedTransition.from_transition_time(
                     transition, time_spent_idx

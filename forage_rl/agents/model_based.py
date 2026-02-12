@@ -6,7 +6,7 @@ import numpy as np
 from .base import BaseAgent
 
 from forage_rl.config import DefaultParams
-from forage_rl import TimedTransition, Trajectory
+from forage_rl import TimedTransition, Trajectory, Transition
 from forage_rl.environments import Maze
 
 LOG_PROB_EPSILON = 1e-12
@@ -132,7 +132,8 @@ class MBRL(BaseAgent):
             if verbose:
                 print(f"Episode {episode}")
 
-            state_idx = self.maze.reset()
+            _, reset_info = self.maze.reset()
+            state_idx = int(reset_info["state"])
             time_spent_idx = 0
             done = False
 
@@ -141,7 +142,16 @@ class MBRL(BaseAgent):
                 action_idx = self.choose_action_boltzmann(
                     self.q_table[state_idx, time_spent_idx]
                 )
-                transition, done = self.maze.step(action_idx)
+                _, reward_value, terminated, truncated, step_info = self.maze.step(
+                    action_idx
+                )
+                transition = Transition(
+                    state=state_idx,
+                    action=action_idx,
+                    reward=reward_value,
+                    next_state=int(step_info["next_state"]),
+                )
+                done = terminated or truncated
 
                 timed_transition = TimedTransition.from_transition_time(
                     transition, time_spent_idx

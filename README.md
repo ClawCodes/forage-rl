@@ -78,9 +78,17 @@ Transition timing modes are inferred from transition rows:
 - `Maze()` -> default simple spec
 - `Maze.from_file(path)` -> load custom TOML
 - `Maze.from_spec(spec)` -> load validated `MazeSpec`
+- `Maze.reset(seed=..., options=...)` -> `(observation, info)`
 - `Maze.transition_distribution(state, action)` -> planner-facing probabilities
 - `Maze.transition_duration(state, action, next_state)` -> time cost of that transition (`1` in step mode)
-- `Maze.step(action)` -> `(Transition, done)`
+- `Maze.step(action)` -> `(observation, reward, terminated, truncated, info)`
+- `MazePOMDP` follows the same Gymnasium API and returns observation-group IDs as observations.
+
+Episode horizon uses Gymnasium time-limit semantics:
+- `terminated` is always `False`
+- `truncated=True` when `time >= horizon`
+
+`info` includes concrete latent-state fields (`state`, `next_state`) to support planners/agents that learn over full states.
 
 Inference methods require timed trajectories:
 - `QLearningTime.simulate_q_learning(...)`

@@ -1,20 +1,16 @@
 """Foraging maze environments driven by validated maze specifications."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
+import gymnasium as gym
 import numpy as np
+from gymnasium import spaces
 
 from forage_rl.types import Transition
 
 from .spec_loader import load_builtin_maze_spec, load_maze_spec
-from .specs import (
-    MazeMeta,
-    MazeSpec,
-    StateSpec,
-    TransitionDurationSpec,
-    TransitionStepSpec,
-)
+from .specs import MazeSpec, TransitionDurationSpec
 
 
 class ForagingReward:
@@ -37,7 +33,7 @@ class ForagingReward:
         return 1.0 if self.rng.random() < reward_prob else 0.0
 
 
-class Maze:
+class Maze(gym.Env):
     """Maze environment with transitions and rewards defined by a TOML spec."""
 
     def __init__(
@@ -70,6 +66,8 @@ class Maze:
         self.decays = self.spec.decays
         self.state_labels = self.spec.state_labels
         self.action_labels = list(self.spec.maze.action_labels)
+        self.action_space = spaces.Discrete(self.num_actions)
+        self.observation_space = spaces.Discrete(self.num_states)
         self.initial_state = self.spec.maze.initial_state
         self.state = self.initial_state
         self.time = 0
@@ -80,7 +78,7 @@ class Maze:
                 (row.state, row.action, row.next_state): row.duration
                 for row in self.spec.transitions
                 if isinstance(row, TransitionDurationSpec)
-            }
+        }
         self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
 
     @classmethod
@@ -139,13 +137,26 @@ class Maze:
         self._validate_action(action_idx)
         return self.action_labels[action_idx]
 
-    def reset(self) -> int:
+    def _init_reward_models(self) -> None:
+        self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
+
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        options: Optional[dict[str, Any]] = None,
+    ) -> tuple[int, dict[str, Any]]:
         """Reset to initial state and clear per-patch depletion counters."""
+        super().reset(seed=seed)
+        _ = options
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+            self._init_reward_models()
         self.state = self.initial_state
         self.time = 0
         for reward_model in self.reward_models:
             reward_model.reset()
-        return self.state
+        return self.state, {"state": self.state, "time": self.time}
 
     def transition_distribution(
         self, state_idx: int, action_idx: int
@@ -154,12 +165,6 @@ class Maze:
         self._validate_state(state_idx)
         self._validate_action(action_idx)
         return list(self._transitions_by_state_action[(state_idx, action_idx)])
-
-    def transition_probs(
-        self, state_idx: int, action_idx: int
-    ) -> list[tuple[int, float]]:
-        """Backward-compatible alias for transition_distribution."""
-        return self.transition_distribution(state_idx, action_idx)
 
     def _sample_next_state(self, state_idx: int, action_idx: int) -> int:
         transition_distribution = self.transition_distribution(state_idx, action_idx)
@@ -192,8 +197,52 @@ class Maze:
             reward_model.reset()
         return 0.0
 
-    def step(self, action_idx: int) -> tuple[Transition, bool]:
-        """Execute action and return (Transition, done)."""
+    def _make_transition(
+        self,
+        prev_state_idx: int,
+        action_idx: int,
+        reward_value: float,
+        next_state_idx: int,
+    ) -> Transition:
+        return Transition(
+            state=prev_state_idx,
+            action=action_idx,
+            reward=reward_value,
+            next_state=next_state_idx,
+        )
+
+    def _build_info(
+        self,
+        prev_state_idx: int,
+        action_idx: int,
+        next_state_idx: int,
+        transition_duration: int,
+        reward_value: float,
+        terminated: bool,
+        truncated: bool,
+    ) -> dict[str, Any]:
+        transition = self._make_transition(
+            prev_state_idx=prev_state_idx,
+            action_idx=action_idx,
+            reward_value=reward_value,
+            next_state_idx=next_state_idx,
+        )
+        return {
+            "state": prev_state_idx,
+            "action": action_idx,
+            "reward": reward_value,
+            "next_state": next_state_idx,
+            "time": self.time,
+            "transition_duration": transition_duration,
+            "terminated": terminated,
+            "truncated": truncated,
+            "transition": transition,
+        }
+
+    def step(
+        self, action_idx: int
+    ) -> tuple[int, float, bool, bool, dict[str, Any]]:
+        """Execute action and return Gymnasium step tuple."""
         self._validate_action(action_idx)
         prev_state_idx = self.state
         next_state_idx = self._sample_next_state(prev_state_idx, action_idx)
@@ -201,16 +250,20 @@ class Maze:
             prev_state_idx, action_idx, next_state_idx
         )
         reward_value = self._get_reward(next_state_idx)
-        transition = Transition(
-            state=prev_state_idx,
-            action=action_idx,
-            reward=reward_value,
-            next_state=next_state_idx,
-        )
         self.state = next_state_idx
         self.time += transition_duration
-        done = self.time >= self.horizon
-        return transition, done
+        terminated = False
+        truncated = self.time >= self.horizon
+        info = self._build_info(
+            prev_state_idx=prev_state_idx,
+            action_idx=action_idx,
+            next_state_idx=next_state_idx,
+            transition_duration=transition_duration,
+            reward_value=reward_value,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        return next_state_idx, reward_value, terminated, truncated, info
 
 
 class MazePOMDP(Maze):
@@ -234,6 +287,7 @@ class MazePOMDP(Maze):
         )
         self._state_to_observation_group = self._build_state_observation_map()
         self.num_observations = len(set(self._state_to_observation_group.values()))
+        self.observation_space = spaces.Discrete(self.num_observations)
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
@@ -248,76 +302,22 @@ class MazePOMDP(Maze):
         self._validate_state(state_idx)
         return self._state_to_observation_group[state_idx]
 
-    def step_observation(self, action: int) -> tuple[int, float, bool]:
-        """Step the environment and emit `(observation, reward, done)`."""
-        transition, done = self.step(action)
-        return self.observe(transition.next_state), transition.reward, done
-
-
-def _simple_spec_from_decays(decays: list[float], horizon: int) -> MazeSpec:
-    """Construct a simple 2-state spec from custom decay values."""
-    if len(decays) != 2:
-        raise ValueError(f"SimpleMaze expects 2 decays, got {len(decays)}")
-
-    return MazeSpec(
-        maze=MazeMeta(
-            name="simple-custom",
-            horizon=horizon,
-            initial_state=0,
-            action_labels=["stay", "leave"],
-        ),
-        states=[
-            StateSpec(
-                id=0,
-                label="Upper Patch",
-                decay=decays[0],
-                observation_group=0,
-            ),
-            StateSpec(
-                id=1,
-                label="Lower Patch",
-                decay=decays[1],
-                observation_group=1,
-            ),
-        ],
-        transitions=[
-            TransitionStepSpec(state=0, action=0, next_state=0, prob=1.0),
-            TransitionStepSpec(state=0, action=1, next_state=1, prob=1.0),
-            TransitionStepSpec(state=1, action=0, next_state=1, prob=1.0),
-            TransitionStepSpec(state=1, action=1, next_state=0, prob=1.0),
-        ],
-    )
-
-
-class SimpleMaze(Maze):
-    """Compatibility wrapper for the default simple maze variant."""
-
-    def __init__(
+    def reset(
         self,
-        decays: Optional[list[float]] = None,
-        horizon: Optional[int] = None,
+        *,
         seed: Optional[int] = None,
-        rng: Optional[np.random.Generator] = None,
-        spec_path: Optional[str | Path] = None,
-    ):
-        """Initialize compatibility wrapper for default or custom simple specs."""
-        if spec_path is not None:
-            super().__init__(spec_path=spec_path, seed=seed, rng=rng, horizon=horizon)
-            return
+        options: Optional[dict[str, Any]] = None,
+    ) -> tuple[int, dict[str, Any]]:
+        state_idx, info = super().reset(seed=seed, options=options)
+        observation = self.observe(state_idx)
+        info["observation"] = observation
+        return observation, info
 
-        if decays is not None:
-            default_horizon = horizon if horizon is not None else 100
-            super().__init__(
-                spec=_simple_spec_from_decays(decays=decays, horizon=default_horizon),
-                seed=seed,
-                rng=rng,
-                horizon=horizon,
-            )
-            return
-
-        super().__init__(
-            spec=load_builtin_maze_spec("simple"),
-            seed=seed,
-            rng=rng,
-            horizon=horizon,
-        )
+    def step(
+        self, action_idx: int
+    ) -> tuple[int, float, bool, bool, dict[str, Any]]:
+        _, reward_value, terminated, truncated, info = super().step(action_idx)
+        next_state_idx = int(info["next_state"])
+        observation = self.observe(next_state_idx)
+        info["observation"] = observation
+        return observation, reward_value, terminated, truncated, info
