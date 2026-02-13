@@ -1,17 +1,19 @@
 """Schema models for TOML-defined maze variants."""
 
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Sequence
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, ValidationError
+
+from forage_rl.config import DefaultParams
 
 
 class MazeMeta(BaseModel):
     """Top-level metadata and shared environment settings."""
 
     name: str = "maze"
-    horizon: int = 100
+    horizon: int = Field(default=DefaultParams.HORIZON, gt=0)
     initial_state: int = 0
     action_labels: List[str] = Field(default_factory=lambda: ["stay", "leave"])
 
@@ -21,8 +23,8 @@ class StateSpec(BaseModel):
 
     id: int
     label: str
-    decay: float
-    observation_group: int
+    decay: float = Field(gt=0)
+    observation_group: int = Field(gt=-1)
 
 
 class TransitionStepSpec(BaseModel):
@@ -132,7 +134,11 @@ class MazeSpec(BaseModel):
             maze_raw["action_labels"] = maze_raw.pop("actions")
             data["maze"] = maze_raw
 
-        action_labels = maze_raw.get("action_labels", ["stay", "leave"])
+        action_labels = maze_raw.get("action_labels")
+
+        if action_labels is None:
+            raise ValidationError("Please specify action labels")
+
         action_index = {name: idx for idx, name in enumerate(action_labels)}
 
         flat_states: List[Dict[str, Any]] = []
@@ -183,6 +189,10 @@ class MazeSpec(BaseModel):
         data["transitions"] = flat_transitions
         return data
 
+    @staticmethod
+    def _is_consecutive(sequence: Sequence[int]) -> bool:
+        return sorted(sequence) == list(range(len(sequence)))
+
     @model_validator(mode="after")
     def validate_spec(self) -> "MazeSpec":
         """Validate structural, index, probability, and duration constraints."""
@@ -193,36 +203,23 @@ class MazeSpec(BaseModel):
         if not self.maze.action_labels:
             raise ValueError("maze.action_labels must contain at least one entry")
 
-        ordered_state_ids = [
-            state_spec.id for state_spec in sorted(self.states, key=lambda s: s.id)
-        ]
-        expected_state_ids = list(range(len(self.states)))
-        if ordered_state_ids != expected_state_ids:
+        state_ids = [state_spec.id for state_spec in self.states]
+
+        if not self._is_consecutive(state_ids):
             raise ValueError(
-                f"states ids must be contiguous 0..N-1, got {ordered_state_ids}"
+                f"states ids must be contiguous 0..N-1, got {sorted(state_ids)}"
             )
 
-        if self.maze.initial_state < 0 or self.maze.initial_state >= self.num_states:
+        if self.maze.initial_state not in state_ids:
             raise ValueError(
                 f"maze.initial_state {self.maze.initial_state} is out of bounds for {self.num_states} states"
             )
 
-        if self.maze.horizon <= 0:
-            raise ValueError("maze.horizon must be > 0")
-
-        for state_spec in self.states:
-            if state_spec.decay < 0:
-                raise ValueError(f"states[{state_spec.id}].decay must be >= 0")
-            if state_spec.observation_group < 0:
-                raise ValueError(
-                    f"states[{state_spec.id}].observation_group must be >= 0"
-                )
-
         observation_groups = sorted(
             {state_spec.observation_group for state_spec in self.states}
         )
-        expected_groups = list(range(len(observation_groups)))
-        if observation_groups != expected_groups:
+
+        if not self._is_consecutive(observation_groups):
             raise ValueError(
                 "observation_group values must be contiguous 0..K-1, "
                 f"got {observation_groups}"
@@ -235,11 +232,13 @@ class MazeSpec(BaseModel):
             isinstance(transition_row, TransitionDurationSpec)
             for transition_row in self.transitions
         ]
+
         if any(has_duration_rows) and not all(has_duration_rows):
             raise ValueError(
                 "Mixed transition modes are invalid: either all transition rows "
                 "must include duration or none may include duration."
             )
+
         uses_duration_mode = all(has_duration_rows)
 
         for transition_row in self.transitions:
@@ -272,6 +271,7 @@ class MazeSpec(BaseModel):
                 transition_row.action,
                 transition_row.next_state,
             )
+
             if triple in seen_triples:
                 raise ValueError(
                     "duplicate transition row for "
@@ -279,7 +279,9 @@ class MazeSpec(BaseModel):
                     f"action={transition_row.action}, "
                     f"next_state={transition_row.next_state}"
                 )
+
             seen_triples.add(triple)
+
             prob_sums_by_state_action[
                 (transition_row.state, transition_row.action)
             ] += transition_row.prob
