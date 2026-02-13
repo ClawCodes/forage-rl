@@ -255,10 +255,6 @@ class MazePOMDP(Maze):
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
-        # TODO: remove
-        # mapping: dict[int, int] = {}
-        # for state in sorted(self.maze_spec.states, key=lambda s: s.id):
-        #     mapping[state.id] = state.observation_group
 
         return {state.id: state.observation_group for state in self.maze_spec.states}
 
