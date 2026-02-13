@@ -1,0 +1,21 @@
+[maze]
+name = "simple"
+horizon = 100
+initial_state = 0
+action_labels = ["stay", "leave"]
+
+[states.0]
+label = "Upper Patch"
+decay = 0.2
+observation_group = 0
+[states.0.transitions]
+stay = [[0, 1.0]]
+leave = [[1, 1.0]]
+
+[states.1]
+label = "Lower Patch"
+decay = 3.0
+observation_group = 1
+[states.1.transitions]
+stay = [[1, 1.0]]
+leave = [[0, 1.0]]

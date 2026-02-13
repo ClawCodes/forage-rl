@@ -1,227 +1,381 @@
-"""Foraging maze environments for reinforcement learning experiments."""
+"""Foraging maze environments driven by validated maze specifications."""
 
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Optional
 
+import gymnasium as gym
 import numpy as np
+from gymnasium.spaces import Discrete
 
-from forage_rl.config import DefaultParams, MazeParams
 from forage_rl.types import Transition
+
+from .spec_loader import load_builtin_maze_spec, load_maze_spec
+from .specs import (
+    MazeMeta,
+    MazeSpec,
+    StateSpec,
+    TransitionDurationSpec,
+    TransitionStepSpec,
+)
 
 
 class ForagingReward:
-    """Models time-dependent reward depletion in a foraging patch.
+    """Models time-dependent reward depletion in a foraging patch."""
 
-    Reward probability decays exponentially over time spent in the patch,
-    simulating food depletion as the agent forages.
-    """
-
-    def __init__(self, decay: float):
+    def __init__(self, decay: float, rng: np.random.Generator):
+        """Initialize decay process with a dedicated RNG stream."""
         self.decay = decay
         self.counter = 0
+        self.rng = rng
 
     def reset(self):
-        """Reset the counter when leaving the patch."""
+        """Reset the depletion counter when leaving a patch."""
         self.counter = 0
 
     def sample_reward(self) -> float:
-        """Sample a stochastic reward based on current depletion level."""
-        prob = np.exp(-self.decay * self.counter)
+        """Sample reward as Bernoulli(exp(-decay * counter))."""
+        reward_prob = np.exp(-self.decay * self.counter)
         self.counter += 1
-        return 1.0 if np.random.rand() < prob else 0.0
+        return 1.0 if self.rng.random() < reward_prob else 0.0
 
 
-# TODO: Need a more flexible way to define state-action-reward configs
-# States can be bound to a different set of actions and reward decays
-# States can have the same label, but be bound to a different reward decay
-class Maze:
+class Maze(gym.Env):
+    """Maze environment with transitions and rewards defined by a TOML spec.
+
+    Implements the standard Gymnasium interface (step returns a 5-tuple)
+    and provides ``step_transition()`` for backward compatibility with
+    existing agents that expect ``(Transition, bool)``.
     """
-    Base Maze environment for reinforcement learning experiments.
 
-    Default Environment:
-    Full 6-state foraging maze with stochastic transitions.
-
-    States 0-2: Upper patch (reward decay decreases as state number increases)
-    States 3-5: Lower patch (reward decay increases as state number increases)
-    Actions: 0 = stay, 1 = leave
-    """
+    metadata = {"render_modes": []}
 
     def __init__(
         self,
-        decays: Optional[List[float]] = None,
-        horizon: int = DefaultParams.HORIZON,
-        num_states: int = 2,
-        num_actions: int = 2,
-        state: int = 0,
-        time: int = 0,
-        rewards: Optional[List[ForagingReward]] = None,
-        state_labels: Optional[List[str]] = None,
-        action_labels: Optional[List[str]] = None,
+        maze_spec: MazeSpec,
+        seed: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
+        horizon: Optional[int] = None,
     ) -> None:
-        self.decays = decays or MazeParams.FULL_MAZE_DECAYS
-        self.horizon = horizon
-        self.num_states = num_states
-        self.num_actions = num_actions
-        self.action_labels = self._set_action_labels(
-            action_labels or MazeParams.BASE_ACTIONS
-        )
-        self.state = state
-        self.state_labels = self._set_state_labels(
-            state_labels or MazeParams.BASE_STATES
-        )
-        self.time = time
-        self.rewards = rewards or self._init_rewards()
+        """Initialize maze dynamics from a validated spec or TOML file."""
+        super().__init__()
 
-    def _set_state_labels(self, state_labels: List[str]) -> List[str]:
-        if len(set(state_labels)) != self.num_states:
-            raise ValueError(f"Number of states {self.num_states} does not match")
+        self.maze_spec = maze_spec
+        self.horizon = horizon if horizon is not None else self.maze_spec.maze.horizon
+        if self.horizon <= 0:
+            raise ValueError(f"horizon must be > 0, got {self.horizon}")
 
-        return state_labels
+        self.rng = rng if rng is not None else np.random.default_rng(seed)
+        self.num_states = self.maze_spec.num_states
+        self.num_actions = self.maze_spec.num_actions
+        self.decays = self.maze_spec.decays
+        self.state_labels = self.maze_spec.state_labels
+        self.action_labels = list(self.maze_spec.maze.action_labels)
+        self.initial_state = self.maze_spec.maze.initial_state
 
-    def _set_action_labels(self, action_labels: List[str]) -> List[str]:
-        if len(set(action_labels)) != self.num_actions:
+        # Gymnasium spaces
+        self.observation_space = Discrete(self.num_states)
+        self.action_space = Discrete(self.num_actions)
+
+        # Internal state
+        self.state = self.initial_state
+        self.time = 0
+
+        # Precomputed transition tables
+        self._transitions_by_state_action = self.maze_spec.transition_map()
+        self._transition_duration_by_edge: dict[tuple[int, int, int], int] = {}
+        if self.maze_spec.uses_transition_durations:
+            self._transition_duration_by_edge = {
+                (row.state, row.action, row.next_state): row.duration
+                for row in self.maze_spec.transitions
+                if isinstance(row, TransitionDurationSpec)
+            }
+
+        self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
+
+    @classmethod
+    def from_file(
+        cls,
+        path: str | Path,
+        seed: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
+        horizon: Optional[int] = None,
+    ) -> "Maze":
+        """Build a maze from a TOML specification file path."""
+        spec = load_maze_spec(path)
+        return cls(maze_spec=spec, seed=seed, rng=rng, horizon=horizon)
+
+    @classmethod
+    def from_spec(
+        cls,
+        name: str = "simple",
+        seed: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
+        horizon: Optional[int] = None,
+    ) -> "Maze":
+        """Build a maze from an existing TOML specification file name."""
+        spec = load_builtin_maze_spec(name)
+        return cls(maze_spec=spec, seed=seed, rng=rng, horizon=horizon)
+
+    # ------------------------------------------------------------------
+    # Validation helpers
+    # ------------------------------------------------------------------
+
+    def _validate_state(self, state_idx: int):
+        if state_idx < 0 or state_idx >= self.num_states:
             raise ValueError(
-                f"Action labels must have {self.num_actions} unique actions"
+                f"state {state_idx} is out of range [0, {self.num_states})"
             )
 
-        return action_labels
+    def _validate_action(self, action_idx: int):
+        if action_idx < 0 or action_idx >= self.num_actions:
+            raise ValueError(
+                f"action {action_idx} is out of range [0, {self.num_actions})"
+            )
 
-    def _init_rewards(self) -> List[ForagingReward]:
-        return [ForagingReward(d) for d in self.decays]
+    # ------------------------------------------------------------------
+    # Label accessors
+    # ------------------------------------------------------------------
 
     def get_state_label(self, state_idx: int) -> str:
+        """Return human-readable label for a state index."""
+        self._validate_state(state_idx)
         return self.state_labels[state_idx]
 
     def get_action_label(self, action_idx: int) -> str:
+        """Return human-readable label for an action index."""
+        self._validate_action(action_idx)
         return self.action_labels[action_idx]
 
-    def reset(self) -> int:
-        """Reset environment to initial state."""
-        self.state = 0
+    # ------------------------------------------------------------------
+    # Transition queries
+    # ------------------------------------------------------------------
+
+    def transition_distribution(
+        self, state_idx: int, action_idx: int
+    ) -> list[tuple[int, float]]:
+        """Return sorted (next_state, probability) transitions for a state-action."""
+        self._validate_state(state_idx)
+        self._validate_action(action_idx)
+        return list(self._transitions_by_state_action[(state_idx, action_idx)])
+
+    def transition_probs(
+        self, state_idx: int, action_idx: int
+    ) -> list[tuple[int, float]]:
+        """Backward-compatible alias for transition_distribution."""
+        return self.transition_distribution(state_idx, action_idx)
+
+    def _sample_next_state(self, state_idx: int, action_idx: int) -> int:
+        transition_distribution = self.transition_distribution(state_idx, action_idx)
+        next_state_ids, transition_probs = zip(*transition_distribution)
+        return int(self.rng.choice(next_state_ids, p=transition_probs))
+
+    def transition_duration(
+        self, state_idx: int, action_idx: int, next_state_idx: int
+    ) -> int:
+        """Return time cost for a concrete ``(state, action, next_state)`` edge."""
+        if not self.maze_spec.uses_transition_durations:
+            return 1
+
+        transition_key = (state_idx, action_idx, next_state_idx)
+        try:
+            return self._transition_duration_by_edge[transition_key]
+        except KeyError as exc:
+            raise ValueError(
+                "No transition duration defined for "
+                f"state={state_idx}, action={action_idx}, next_state={next_state_idx}"
+            ) from exc
+
+    # ------------------------------------------------------------------
+    # Reward logic
+    # ------------------------------------------------------------------
+
+    def _get_reward(self, next_state_idx: int) -> float:
+        """Return reward for a transition and reset depletion after patch switches."""
+        if self.state == next_state_idx:
+            return self.reward_models[self.state].sample_reward()
+
+        for reward_model in self.reward_models:
+            reward_model.reset()
+        return 0.0
+
+    # ------------------------------------------------------------------
+    # Gymnasium interface
+    # ------------------------------------------------------------------
+
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        options: Optional[dict[str, Any]] = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """Reset to initial state and clear per-patch depletion counters."""
+        super().reset(seed=seed, options=options)
+        self.state = self.initial_state
         self.time = 0
-        for r in self.rewards:
-            r.reset()
-        return self.state
+        for reward_model in self.reward_models:
+            reward_model.reset()
+        return self.state, {}
 
-    def step(self, action: int) -> tuple[Transition, bool]:
-        """Execute action and return (next_state, reward, done)."""
-        new_state = self._get_transition(action)
-        reward = self._get_reward(new_state)
+    def step(self, action: int) -> tuple[int, float, bool, bool, dict[str, Any]]:
+        """Execute action and return standard Gymnasium 5-tuple.
+
+        Returns:
+            (obs, reward, terminated, truncated, info) where
+            ``terminated`` is always False (no absorbing states) and
+            ``truncated`` is True when ``time >= horizon``.
+        """
+        self._validate_action(action)
+        prev_state = self.state
+        next_state = self._sample_next_state(prev_state, action)
+        duration = self.transition_duration(prev_state, action, next_state)
+        reward = self._get_reward(next_state)
+
+        self.state = next_state
+        self.time += duration
+        truncated = self.time >= self.horizon
+
+        info = {"prev_state": prev_state, "action": action}
+        return self.state, reward, False, truncated, info
+
+    # ------------------------------------------------------------------
+    # Agent-compatibility interface
+    # ------------------------------------------------------------------
+
+    def step_transition(self, action: int) -> tuple[Transition, bool]:
+        """Execute action and return ``(Transition, done)``.
+
+        Convenience wrapper around ``step()`` for agents that expect the
+        legacy ``(Transition, bool)`` interface.
+        """
+        obs, reward, terminated, truncated, info = self.step(action)
         transition = Transition(
-            state=self.state, action=action, reward=reward, next_state=new_state
+            state=info["prev_state"],
+            action=info["action"],
+            reward=reward,
+            next_state=obs,
         )
-        self.state = new_state
-        self.time += 1
-        done = self.time >= self.horizon
-
+        done = terminated or truncated
         return transition, done
-
-    def _get_reward(self, new_state: int) -> float:
-        """Get reward based on state transition."""
-        if self.state == new_state:
-            return self.rewards[self.state].sample_reward()
-        else:
-            # Mouse left patch - reset all patches, no reward during travel
-            for r in self.rewards:
-                r.reset()
-            return 0.0
-
-    def _get_transition(self, action: int) -> int:
-        """Get next state based on action."""
-        if action == 0:  # Stay
-            return self.state
-
-        # Leave - stochastic transition to other patch
-        rand = np.random.rand()
-        probs = MazeParams.TRANSITION_PROBS
-
-        if self.state in [0, 1, 2]:  # Upper patch -> Lower patch
-            if rand < probs[0]:
-                return 3
-            elif rand < probs[0] + probs[1]:  # 0.5
-                return 4
-            else:
-                return 5
-        else:  # Lower patch -> Upper patch
-            if rand < probs[0]:
-                return 0
-            elif rand < probs[0] + probs[1]:  # 0.5
-                return 1
-            else:
-                return 2
 
 
 class MazePOMDP(Maze):
-    """Partially observable version of the maze.
-
-    Observations are reduced to 2 states (upper/lower patch),
-    hiding the specific patch identity.
-    """
+    """Partially observable wrapper with explicit observation groups from spec."""
 
     def __init__(
-        self, decays: Optional[list] = None, horizon: int = DefaultParams.HORIZON
+        self,
+        maze_spec: MazeSpec,
+        seed: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
+        horizon: Optional[int] = None,
     ):
-        super().__init__(decays, horizon)
-        self.num_states = 2  # Observation space
+        """Initialize POMDP wrapper with explicit observation-group mapping."""
+        super().__init__(
+            maze_spec=maze_spec,
+            seed=seed,
+            rng=rng,
+            horizon=horizon,
+        )
+        self._state_to_observation_group = self._build_state_observation_map()
+        self.num_observations = len(set(self._state_to_observation_group.values()))
+        self.observation_space = Discrete(self.num_observations)
 
-    def step(self, action: int) -> tuple:
-        """Execute action and return (observation, reward, done)."""
-        transition, done = super().step(action)
-        obs = 0 if transition.next_state in [0, 1, 2] else 1
-        return obs, transition.reward, done
+    def _build_state_observation_map(self) -> dict[int, int]:
+        """Build mapping from concrete states to observation groups."""
+        mapping: dict[int, int] = {}
+        for state in sorted(self.maze_spec.states, key=lambda s: s.id):
+            mapping[state.id] = state.observation_group
+        return mapping
+
+    def observe(self, state: Optional[int] = None) -> int:
+        """Return observation group id for a state (or current state by default)."""
+        state_idx = self.state if state is None else state
+        self._validate_state(state_idx)
+        return self._state_to_observation_group[state_idx]
+
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        options: Optional[dict[str, Any]] = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """Reset and return observation group instead of true state."""
+        _, info = super().reset(seed=seed, options=options)
+        info["true_state"] = self.state
+        return self.observe(), info
+
+    def step(self, action: int) -> tuple[int, float, bool, bool, dict[str, Any]]:
+        """Step and return observation group instead of true state."""
+        _, reward, terminated, truncated, info = super().step(action)
+        info["true_state"] = self.state
+        return self.observe(), reward, terminated, truncated, info
+
+    def step_observation(self, action: int) -> tuple[int, float, bool]:
+        """Step the environment and emit ``(observation, reward, done)``."""
+        obs, reward, terminated, truncated, _ = self.step(action)
+        return obs, reward, terminated or truncated
+
+
+def _simple_spec_from_decays(decays: list[float], horizon: int) -> MazeSpec:
+    """Construct a simple 2-state spec from custom decay values."""
+    if len(decays) != 2:
+        raise ValueError(f"SimpleMaze expects 2 decays, got {len(decays)}")
+
+    return MazeSpec(
+        maze=MazeMeta(
+            name="simple-custom",
+            horizon=horizon,
+            initial_state=0,
+            action_labels=["stay", "leave"],
+        ),
+        states=[
+            StateSpec(
+                id=0,
+                label="Upper Patch",
+                decay=decays[0],
+                observation_group=0,
+            ),
+            StateSpec(
+                id=1,
+                label="Lower Patch",
+                decay=decays[1],
+                observation_group=1,
+            ),
+        ],
+        transitions=[
+            TransitionStepSpec(state=0, action=0, next_state=0, prob=1.0),
+            TransitionStepSpec(state=0, action=1, next_state=1, prob=1.0),
+            TransitionStepSpec(state=1, action=0, next_state=1, prob=1.0),
+            TransitionStepSpec(state=1, action=1, next_state=0, prob=1.0),
+        ],
+    )
 
 
 class SimpleMaze(Maze):
-    """Simplified 2-state foraging maze with deterministic transitions.
+    """Compatibility wrapper for the default simple maze variant."""
 
-    State 0: Upper patch
-    State 1: Lower patch
-    Actions: 0 = stay, 1 = leave
-    """
+    def __init__(
+        self,
+        decays: Optional[list[float]] = None,
+        horizon: Optional[int] = None,
+        seed: Optional[int] = None,
+        rng: Optional[np.random.Generator] = None,
+    ):
+        """Initialize compatibility wrapper for default or custom simple specs."""
+        if decays is not None:
+            default_horizon = horizon if horizon is not None else 100
+            super().__init__(
+                maze_spec=_simple_spec_from_decays(
+                    decays=decays, horizon=default_horizon
+                ),
+                seed=seed,
+                rng=rng,
+                horizon=horizon,
+            )
+            return
 
-    def __init__(self, decays: Optional[list] = None, horizon: Optional[int] = None):
         super().__init__(
-            decays or MazeParams.SIMPLE_MAZE_DECAYS,
-            horizon or DefaultParams.HORIZON,
-            num_states=2,
-            num_actions=2,
-            state=0,
-            state_labels=MazeParams.SIMPLE_STATES,
-            time=0,
-            action_labels=MazeParams.SIMPLE_ACTIONS,
+            maze_spec=load_builtin_maze_spec("simple"),
+            seed=seed,
+            rng=rng,
+            horizon=horizon,
         )
-
-    def reset(self) -> int:
-        """Reset environment to initial state."""
-        self.state = 0
-        self.time = 0
-        for r in self.rewards:
-            r.reset()
-        return self.state
-
-    def step(self, action: int) -> tuple[Transition, bool]:
-        """Execute action and return (Transition, done)."""
-        new_state = self._get_transition(action)
-        reward = self._get_reward(new_state)
-        transition = Transition(
-            state=self.state, action=action, reward=reward, next_state=new_state
-        )
-        self.state = new_state
-        self.time += 1
-        done = self.time >= self.horizon
-        return transition, done
-
-    def _get_reward(self, new_state: int) -> float:
-        """Get reward based on state transition."""
-        if self.state == new_state:
-            return self.rewards[self.state].sample_reward()
-        else:
-            for r in self.rewards:
-                r.reset()
-            return 0.0
-
-    def _get_transition(self, action: int) -> int:
-        """Get next state based on action (deterministic)."""
-        if action == 0:  # Stay
-            return self.state
-        else:  # Leave - deterministic transition
-            return 1 - self.state

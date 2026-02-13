@@ -1,0 +1,53 @@
+[maze]
+name = "full"
+horizon = 100
+initial_state = 0
+action_labels = ["stay", "leave"]
+
+[states.0]
+label = "Upper Patch"
+decay = 0.5
+observation_group = 0
+[states.0.transitions]
+stay = [[0, 1.0]]
+leave = [[3, 0.15], [4, 0.35], [5, 0.50]]
+
+[states.1]
+label = "Upper Patch"
+decay = 2.0
+observation_group = 0
+[states.1.transitions]
+stay = [[1, 1.0]]
+leave = [[3, 0.15], [4, 0.35], [5, 0.50]]
+
+[states.2]
+label = "Upper Patch"
+decay = 0.1
+observation_group = 0
+[states.2.transitions]
+stay = [[2, 1.0]]
+leave = [[3, 0.15], [4, 0.35], [5, 0.50]]
+
+[states.3]
+label = "Lower Patch"
+decay = 0.1
+observation_group = 1
+[states.3.transitions]
+stay = [[3, 1.0]]
+leave = [[0, 0.15], [1, 0.35], [2, 0.50]]
+
+[states.4]
+label = "Lower Patch"
+decay = 2.0
+observation_group = 1
+[states.4.transitions]
+stay = [[4, 1.0]]
+leave = [[0, 0.15], [1, 0.35], [2, 0.50]]
+
+[states.5]
+label = "Lower Patch"
+decay = 3.0
+observation_group = 1
+[states.5.transitions]
+stay = [[5, 1.0]]
+leave = [[0, 0.15], [1, 0.35], [2, 0.50]]
