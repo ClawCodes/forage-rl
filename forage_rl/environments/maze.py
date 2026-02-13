@@ -17,6 +17,7 @@ from .specs import (
     TransitionDurationSpec,
     TransitionStepSpec,
 )
+from ..config import DefaultParams
 
 
 class ForagingReward:
@@ -40,7 +41,8 @@ class ForagingReward:
 
 
 class Maze(gym.Env):
-    """Maze environment with transitions and rewards defined by a TOML spec.
+    """
+    Maze environment with transitions and rewards defined by a TOML spec.
 
     Implements the standard Gymnasium interface (step returns a 5-tuple)
     and provides ``step_transition()`` for backward compatibility with
@@ -60,11 +62,11 @@ class Maze(gym.Env):
         super().__init__()
 
         self.maze_spec = maze_spec
-        self.horizon = horizon if horizon is not None else self.maze_spec.maze.horizon
+        self.horizon = horizon or self.maze_spec.maze.horizon
         if self.horizon <= 0:
             raise ValueError(f"horizon must be > 0, got {self.horizon}")
 
-        self.rng = rng if rng is not None else np.random.default_rng(seed)
+        self.rng = rng or np.random.default_rng(seed)
         self.num_states = self.maze_spec.num_states
         self.num_actions = self.maze_spec.num_actions
         self.decays = self.maze_spec.decays
@@ -116,10 +118,6 @@ class Maze(gym.Env):
         spec = load_builtin_maze_spec(name)
         return cls(maze_spec=spec, seed=seed, rng=rng, horizon=horizon)
 
-    # ------------------------------------------------------------------
-    # Validation helpers
-    # ------------------------------------------------------------------
-
     def _validate_state(self, state_idx: int):
         if state_idx < 0 or state_idx >= self.num_states:
             raise ValueError(
@@ -132,10 +130,6 @@ class Maze(gym.Env):
                 f"action {action_idx} is out of range [0, {self.num_actions})"
             )
 
-    # ------------------------------------------------------------------
-    # Label accessors
-    # ------------------------------------------------------------------
-
     def get_state_label(self, state_idx: int) -> str:
         """Return human-readable label for a state index."""
         self._validate_state(state_idx)
@@ -146,23 +140,13 @@ class Maze(gym.Env):
         self._validate_action(action_idx)
         return self.action_labels[action_idx]
 
-    # ------------------------------------------------------------------
-    # Transition queries
-    # ------------------------------------------------------------------
-
     def transition_distribution(
         self, state_idx: int, action_idx: int
     ) -> list[tuple[int, float]]:
         """Return sorted (next_state, probability) transitions for a state-action."""
         self._validate_state(state_idx)
         self._validate_action(action_idx)
-        return list(self._transitions_by_state_action[(state_idx, action_idx)])
-
-    def transition_probs(
-        self, state_idx: int, action_idx: int
-    ) -> list[tuple[int, float]]:
-        """Backward-compatible alias for transition_distribution."""
-        return self.transition_distribution(state_idx, action_idx)
+        return self._transitions_by_state_action[(state_idx, action_idx)]
 
     def _sample_next_state(self, state_idx: int, action_idx: int) -> int:
         transition_distribution = self.transition_distribution(state_idx, action_idx)
@@ -185,10 +169,6 @@ class Maze(gym.Env):
                 f"state={state_idx}, action={action_idx}, next_state={next_state_idx}"
             ) from exc
 
-    # ------------------------------------------------------------------
-    # Reward logic
-    # ------------------------------------------------------------------
-
     def _get_reward(self, next_state_idx: int) -> float:
         """Return reward for a transition and reset depletion after patch switches."""
         if self.state == next_state_idx:
@@ -198,10 +178,7 @@ class Maze(gym.Env):
             reward_model.reset()
         return 0.0
 
-    # ------------------------------------------------------------------
-    # Gymnasium interface
-    # ------------------------------------------------------------------
-
+    # --- Begin Gymnasium interface ---
     def reset(
         self,
         *,
@@ -237,10 +214,7 @@ class Maze(gym.Env):
         info = {"prev_state": prev_state, "action": action}
         return self.state, reward, False, truncated, info
 
-    # ------------------------------------------------------------------
-    # Agent-compatibility interface
-    # ------------------------------------------------------------------
-
+    # Backward compatible interface
     def step_transition(self, action: int) -> tuple[Transition, bool]:
         """Execute action and return ``(Transition, done)``.
 
@@ -281,14 +255,16 @@ class MazePOMDP(Maze):
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
-        mapping: dict[int, int] = {}
-        for state in sorted(self.maze_spec.states, key=lambda s: s.id):
-            mapping[state.id] = state.observation_group
-        return mapping
+        # TODO: remove
+        # mapping: dict[int, int] = {}
+        # for state in sorted(self.maze_spec.states, key=lambda s: s.id):
+        #     mapping[state.id] = state.observation_group
+
+        return {state.id: state.observation_group for state in self.maze_spec.states}
 
     def observe(self, state: Optional[int] = None) -> int:
         """Return observation group id for a state (or current state by default)."""
-        state_idx = self.state if state is None else state
+        state_idx = state or self.state
         self._validate_state(state_idx)
         return self._state_to_observation_group[state_idx]
 
@@ -309,13 +285,10 @@ class MazePOMDP(Maze):
         info["true_state"] = self.state
         return self.observe(), reward, terminated, truncated, info
 
-    def step_observation(self, action: int) -> tuple[int, float, bool]:
-        """Step the environment and emit ``(observation, reward, done)``."""
-        obs, reward, terminated, truncated, _ = self.step(action)
-        return obs, reward, terminated or truncated
 
-
-def _simple_spec_from_decays(decays: list[float], horizon: int) -> MazeSpec:
+def _simple_spec_from_decays(
+    decays: list[float], horizon: int = DefaultParams.HORIZON
+) -> MazeSpec:
     """Construct a simple 2-state spec from custom decay values."""
     if len(decays) != 2:
         raise ValueError(f"SimpleMaze expects 2 decays, got {len(decays)}")
@@ -356,17 +329,14 @@ class SimpleMaze(Maze):
     def __init__(
         self,
         decays: Optional[list[float]] = None,
-        horizon: Optional[int] = None,
+        horizon: int = DefaultParams.HORIZON,
         seed: Optional[int] = None,
         rng: Optional[np.random.Generator] = None,
     ):
         """Initialize compatibility wrapper for default or custom simple specs."""
         if decays is not None:
-            default_horizon = horizon if horizon is not None else 100
             super().__init__(
-                maze_spec=_simple_spec_from_decays(
-                    decays=decays, horizon=default_horizon
-                ),
+                maze_spec=_simple_spec_from_decays(decays=decays, horizon=horizon),
                 seed=seed,
                 rng=rng,
                 horizon=horizon,

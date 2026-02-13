@@ -38,7 +38,6 @@ class TransitionStepSpec(BaseModel):
     prob: float
 
 
-# TODO: determine if we need this Spec
 class TransitionDurationSpec(BaseModel):
     """Transition row with explicit time duration."""
 
@@ -94,7 +93,12 @@ class MazeSpec(BaseModel):
         return [state_spec.label for state_spec in self._sorted_states()]
 
     def transition_map(self) -> Dict[Tuple[int, int], List[Tuple[int, float]]]:
-        """Build a sorted transition map keyed by (state, action)."""
+        """
+        Build a sorted transition map keyed by (state, action).
+
+        Output structure:
+            {(<state_t>, <action_t>): [(<state_t+1>, <action_t+1>), ..., (<state_t+n>, <action_t+n>)]}
+        """
         mapping: Dict[Tuple[int, int], List[Tuple[int, float]]] = defaultdict(list)
         for transition_row in self.transitions:
             mapping[(transition_row.state, transition_row.action)].append(
