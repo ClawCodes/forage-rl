@@ -19,7 +19,7 @@ def _load_spec_data(path: Path) -> MazeSpec:
 def load_maze_spec(path: Path | str) -> MazeSpec:
     """Load and validate a maze spec from a TOML file path."""
     spec_path = Path(path).expanduser().resolve()
-    if not spec_path.exists():
+    if not spec_path.is_file():
         raise ValueError(f"Maze spec file does not exist: {spec_path}")
 
     return _load_spec_data(spec_path)
