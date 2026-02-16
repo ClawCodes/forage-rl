@@ -100,14 +100,14 @@ class MBRL(BaseAgent):
             if verbose:
                 print(f"Episode {episode}")
 
-            state = self.maze.reset()
+            state, _ = self.maze.reset()
             time_spent = 0
             done = False
 
             while not done:
                 # Choose action using Boltzmann exploration
                 action = self.choose_action_boltzmann(self.q_table[state, time_spent])
-                transition, done = self.maze.step(action)
+                transition, done = self.maze.step_transition(action)
 
                 timed_transition = TimedTransition.from_transition_time(
                     transition, time_spent

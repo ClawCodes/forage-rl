@@ -59,13 +59,13 @@ class QLearning(BaseAgent):
     def train(self, verbose: bool = True):
         """Train the agent."""
         for episode in range(self.num_episodes):
-            state = self.maze.reset()
+            state, _ = self.maze.reset()
             done = False
             total_reward = 0
 
             while not done:
                 action = self.choose_action(state)
-                transition, done = self.maze.step(action)
+                transition, done = self.maze.step_transition(action)
                 self.update_q_value(transition)
                 state = transition.next_state
                 total_reward += transition.reward
@@ -162,14 +162,14 @@ class QLearningTime(BaseAgent):
         transitions = []
 
         for episode in range(self.num_episodes):
-            state = self.maze.reset()
+            state, _ = self.maze.reset()
             time_spent = 0
             done = False
             max_time_spent = 0
 
             while not done:
                 action = self.choose_action(state, time_spent)
-                transition, done = self.maze.step(action)
+                transition, done = self.maze.step_transition(action)
 
                 timed_transition = TimedTransition.from_transition_time(
                     transition, time_spent
