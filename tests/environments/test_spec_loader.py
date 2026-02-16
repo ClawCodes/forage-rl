@@ -27,22 +27,22 @@ class TestSpecLoader:
 
         # Transitions
         assert len(maze.transitions) == 4
-        # State 1 stay
+        # State 0 stay
         assert maze.transitions[0].state == 0
         assert maze.transitions[0].action == 0
         assert maze.transitions[0].next_state == 0
         assert maze.transitions[0].prob == 1.0
-        # State 1 leave
+        # State 0 leave
         assert maze.transitions[1].state == 0
         assert maze.transitions[1].action == 1
         assert maze.transitions[1].next_state == 1
         assert maze.transitions[1].prob == 1.0
-        # State 2 stay
+        # State 1 stay
         assert maze.transitions[2].state == 1
         assert maze.transitions[2].action == 0
         assert maze.transitions[2].next_state == 1
         assert maze.transitions[2].prob == 1.0
-        # State 2 leave
+        # State 1 leave
         assert maze.transitions[3].state == 1
         assert maze.transitions[3].action == 1
         assert maze.transitions[3].next_state == 0

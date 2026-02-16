@@ -29,9 +29,11 @@ class ForagingReward:
         self.counter = 0
         self.rng = rng
 
-    def reset(self):
+    def reset(self, rng: Optional[np.random.Generator] = None) -> None:
         """Reset the depletion counter when leaving a patch."""
         self.counter = 0
+        if rng is not None:
+            self.rng = rng
 
     def sample_reward(self) -> float:
         """Sample reward as Bernoulli(exp(-decay * counter))."""
@@ -189,8 +191,10 @@ class Maze(gym.Env):
         super().reset(seed=seed, options=options)
         self.state = self.initial_state
         self.time = 0
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
         for reward_model in self.reward_models:
-            reward_model.reset()
+            reward_model.reset(rng=self.rng)
         return self.state, {}
 
     def step(self, action: int) -> tuple[int, float, bool, bool, dict[str, Any]]:
@@ -260,7 +264,7 @@ class MazePOMDP(Maze):
 
     def observe(self, state: Optional[int] = None) -> int:
         """Return observation group id for a state (or current state by default)."""
-        state_idx = state or self.state
+        state_idx = self.state if state is None else state
         self._validate_state(state_idx)
         return self._state_to_observation_group[state_idx]
 
