@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Union, Sequence
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, model_validator, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from forage_rl.config import DefaultParams
 
@@ -141,7 +141,7 @@ class MazeSpec(BaseModel):
         action_labels = maze_raw.get("action_labels")
 
         if action_labels is None:
-            raise ValidationError("Please specify action labels")
+            raise ValueError("Please specify action labels")
 
         action_index = {name: idx for idx, name in enumerate(action_labels)}
 
