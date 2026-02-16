@@ -97,7 +97,7 @@ class MazeSpec(BaseModel):
         Build a sorted transition map keyed by (state, action).
 
         Output structure:
-            {(<state_t>, <action_t>): [(<state_t+1>, <action_t+1>), ..., (<state_t+n>, <action_t+n>)]}
+            {(<state_t>, <action_t>): [(<state_t+1>, <prob>), ..., (<state_t+n>, <prob>)]}
         """
         mapping: Dict[Tuple[int, int], List[Tuple[int, float]]] = defaultdict(list)
         for transition_row in self.transitions:

@@ -64,7 +64,7 @@ class Maze(gym.Env):
         super().__init__()
 
         self.maze_spec = maze_spec
-        self.horizon = horizon or self.maze_spec.maze.horizon
+        self.horizon = self.maze_spec.maze.horizon if horizon is None else horizon
         if self.horizon <= 0:
             raise ValueError(f"horizon must be > 0, got {self.horizon}")
 
