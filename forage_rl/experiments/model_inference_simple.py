@@ -34,7 +34,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     mbrl = MBRL(
         maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
     )
-    mb_log_likelihood = mbrl.simulate_model_based_rl(transitions)
+    mb_log_likelihood = mbrl.simulate(transitions)
     mb_total = np.sum(mb_log_likelihood)
     print(f"MBRL log-likelihood: {mb_total:.4f}")
 
@@ -42,7 +42,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     qlearning = QLearningTime(
         maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA
     )
-    ql_log_likelihood = qlearning.simulate_q_learning(transitions)
+    ql_log_likelihood = qlearning.simulate(transitions)
     ql_total = np.sum(ql_log_likelihood)
     print(f"Q-learning log-likelihood: {ql_total:.4f}")
 
@@ -62,7 +62,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     mbrl = MBRL(
         maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
     )
-    mb_log_likelihood = mbrl.simulate_model_based_rl(transitions)
+    mb_log_likelihood = mbrl.simulate(transitions)
     mb_total = np.sum(mb_log_likelihood)
     print(f"MBRL log-likelihood: {mb_total:.4f}")
 
@@ -70,7 +70,7 @@ def run_simple_inference(mbrl_file_id: int = 0, qlearning_file_id: int = 0):
     qlearning = QLearningTime(
         maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=DefaultParams.ALPHA
     )
-    ql_log_likelihood = qlearning.simulate_q_learning(transitions)
+    ql_log_likelihood = qlearning.simulate(transitions)
     ql_total = np.sum(ql_log_likelihood)
     print(f"Q-learning log-likelihood: {ql_total:.4f}")
 

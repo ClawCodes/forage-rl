@@ -36,8 +36,8 @@ def plot_model_comparison(
 
     for i in range(num_datasets):
         # MBRL-generated data: MBRL should have higher likelihood
-        mb_logprobs = load_logprobs("mbrl_true", i)
-        ql_logprobs = load_logprobs("ql_false", i)
+        mb_logprobs = load_logprobs("source_mbrl_eval_mbrl", i)
+        ql_logprobs = load_logprobs("source_mbrl_eval_q_learning", i)
 
         if mb_logprobs[-1] > ql_logprobs[-1]:
             mb_accuracies.append(1)
@@ -45,8 +45,8 @@ def plot_model_comparison(
             mb_accuracies.append(0)
 
         # Q-learning-generated data: Q-learning should have higher likelihood
-        mb_logprobs_ql = load_logprobs("mbrl_false", i)
-        ql_logprobs_ql = load_logprobs("ql_true", i)
+        mb_logprobs_ql = load_logprobs("source_q_learning_eval_mbrl", i)
+        ql_logprobs_ql = load_logprobs("source_q_learning_eval_q_learning", i)
 
         if ql_logprobs_ql[-1] > mb_logprobs_ql[-1]:
             ql_accuracies.append(1)
@@ -119,8 +119,8 @@ def plot_cumulative_sum_accuracy(
 
     for j in range(num_datasets):
         # MBRL-generated data
-        mb_cumsum = load_logprobs("mbrl_true", j)
-        ql_cumsum = load_logprobs("ql_false", j)
+        mb_cumsum = load_logprobs("source_mbrl_eval_mbrl", j)
+        ql_cumsum = load_logprobs("source_mbrl_eval_q_learning", j)
 
         accuracy_mb = np.zeros(len(mb_cumsum))
         for i in range(len(mb_cumsum)):
@@ -133,8 +133,8 @@ def plot_cumulative_sum_accuracy(
         accuracies.append(accuracy_mb)
 
         # Q-learning-generated data
-        mb_cumsum_ql = load_logprobs("mbrl_false", j)
-        ql_cumsum_ql = load_logprobs("ql_true", j)
+        mb_cumsum_ql = load_logprobs("source_q_learning_eval_mbrl", j)
+        ql_cumsum_ql = load_logprobs("source_q_learning_eval_q_learning", j)
 
         accuracy_ql = np.zeros(len(mb_cumsum_ql))
         for i in range(len(mb_cumsum_ql)):
@@ -167,6 +167,96 @@ def plot_cumulative_sum_accuracy(
     if save:
         ensure_directories()
         filepath = FIGURES_DIR / "cumulative_accuracy.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+
+    if show:
+        plt.show()
+
+    return fig
+
+
+def plot_model_accuracies_from_trajectory_type(
+    source: str,
+    compare_to: list[str],
+    num_datasets: Optional[int] = None,
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot bar chart showing how often each evaluator agent best explains a source trajectory type.
+
+    The source agent is always included as an evaluator (self-recognition baseline).
+    Each bar shows the fraction of datasets where that evaluator assigned the highest
+    final cumulative log-likelihood among all evaluators.
+
+    Args:
+        source: Agent type whose saved trajectories to load (e.g. "mbrl")
+        compare_to: Additional evaluator agent names to compare against the source
+        num_datasets: Number of trajectory files to analyze; defaults to all available
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    # Always include the source agent as a self-eval evaluator
+    evaluators = [source] + [a for a in compare_to if a != source]
+
+    num_datasets = num_datasets or get_run_count(source)
+    if num_datasets == 0:
+        print(
+            f"No log probability files found for source '{source}'. Run model_inference.py first."
+        )
+        return
+
+    win_counts = {ev: 0 for ev in evaluators}
+
+    for i in range(num_datasets):
+        final_logprobs = {}
+        for ev in evaluators:
+            label = f"source_{source}_eval_{ev}"
+            logprobs = load_logprobs(label, i)
+            final_logprobs[ev] = logprobs[-1]
+
+        winner = max(final_logprobs, key=final_logprobs.__getitem__)
+        win_counts[winner] += 1
+
+    accuracies = [win_counts[ev] / num_datasets for ev in evaluators]
+
+    fig, ax = plt.subplots(figsize=(15, 6))
+
+    colors = ["#3498db"] + ["#e74c3c", "#2ecc71", "#f39c12", "#9b59b6"][
+        : len(evaluators) - 1
+    ]
+    bars = ax.bar(evaluators, accuracies, color=colors)
+
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Win Rate", fontsize=14)
+    ax.set_xlabel("Evaluator Agent", fontsize=14)
+    ax.set_title(f"Model Accuracy on '{source}'-Generated Trajectories", fontsize=16)
+
+    chance = 1 / len(evaluators)
+    ax.axhline(
+        y=chance,
+        color="gray",
+        linestyle="--",
+        alpha=0.7,
+        label=f"Chance ({chance:.2f})",
+    )
+    ax.legend()
+
+    for bar, acc in zip(bars, accuracies):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.02,
+            f"{acc:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=12,
+        )
+
+    plt.tight_layout()
+
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / f"model_accuracies_{source}.png"
         plt.savefig(filepath, dpi=150)
         print(f"Saved to {filepath}")
 
@@ -313,3 +403,9 @@ if __name__ == "__main__":
     print("Plotting model comparison results...")
     plot_model_comparison(save=True)
     plot_cumulative_sum_accuracy(save=True)
+    plot_model_accuracies_from_trajectory_type(
+        "mbrl", ["mbrl", "q_learning"], save=True
+    )
+    plot_model_accuracies_from_trajectory_type(
+        "q_learning", ["mbrl", "q_learning"], save=True
+    )

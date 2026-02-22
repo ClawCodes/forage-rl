@@ -57,7 +57,7 @@ class MBRL(BaseAgent):
                             self.q_table[next_state, next_time]
                         )
 
-    def simulate_model_based_rl(self, trajectory: Trajectory) -> list[float]:
+    def simulate(self, trajectory: Trajectory) -> list[float]:
         """
         Evaluate log-likelihood of transitions under model-based RL.
 
