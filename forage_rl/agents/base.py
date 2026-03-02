@@ -10,14 +10,31 @@ from forage_rl.environments import Maze
 
 
 class BaseAgent(ABC):
-    """Base class for reinforcement learning agents.
+    """
+    Base class for reinforcement learning agents.
 
     Provides shared functionality for Boltzmann action selection and Q-value plotting.
     """
 
-    def __init__(self, maze: Maze, beta: float = DefaultParams.BETA):
+    def __init__(
+        self,
+        maze: Maze,
+        beta: float = DefaultParams.BETA,
+        seed: int | None = None,
+        rng: np.random.Generator | None = None,
+    ):
+        """
+        Initialize common agent state.
+
+        Args:
+            maze: Environment instance the agent interacts with.
+            beta: Inverse temperature for Boltzmann exploration.
+            seed: Optional seed to create an agent-local RNG.
+            rng: Optional RNG instance. If provided, ``seed`` is ignored.
+        """
         self.maze = maze
         self.beta = beta
+        self.rng = rng or np.random.default_rng(seed)
         self.q_table = np.array([])  # Subclasses must initialize
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:
@@ -28,17 +45,21 @@ class BaseAgent(ABC):
     def choose_action_boltzmann(self, q_values: np.ndarray) -> int:
         """Choose action using Boltzmann exploration."""
         action_probs = self.boltzmann_action_probs(q_values)
-        return int(np.random.choice(len(q_values), p=action_probs))
+        return int(self.rng.choice(len(q_values), p=action_probs))
 
     def get_policy(self) -> np.ndarray:
         """Extract greedy policy from Q-table."""
         if self.q_table.size == 0:
             raise ValueError("Q-table not initialized")
 
-        if len(self.q_table.shape) == 3:
+        if self.q_table.ndim == 3:
             return np.argmax(self.q_table, axis=2)  # time-bound q-table
-        else:
+        elif self.q_table.ndim == 2:
             return np.argmax(self.q_table, axis=1)  # non-time-bound q-table
+        else:
+            raise ValueError(
+                "Q-table must have shape (num_states, num_actions) or (num_states, horizon, num_actions)"
+            )
 
     @abstractmethod
     def simulate(self, trajectory) -> list[float]:
