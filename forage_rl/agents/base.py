@@ -21,7 +21,6 @@ class BaseAgent(ABC):
         maze: Maze,
         beta: float = DefaultParams.BETA,
         seed: int | None = None,
-        rng: np.random.Generator | None = None,
     ):
         """
         Initialize common agent state.
@@ -29,12 +28,14 @@ class BaseAgent(ABC):
         Args:
             maze: Environment instance the agent interacts with.
             beta: Inverse temperature for Boltzmann exploration.
-            seed: Optional seed to create an agent-local RNG.
-            rng: Optional RNG instance. If provided, ``seed`` is ignored.
+            seed: Optional seed to create a agent-local RNG.
+                If ``None``, behavior is not guaranteed to be
+                reproducible across runs.
         """
         self.maze = maze
         self.beta = beta
-        self.rng = rng or np.random.default_rng(seed)
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
         self.q_table = np.array([])  # Subclasses must initialize
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:

@@ -29,8 +29,8 @@ class QLearning(BaseAgent):
         min_epsilon: float = 0.01,
         decay_rate: float = 0.995,
         seed: int | None = None,
-        rng: np.random.Generator | None = None):
-        super().__init__(maze=maze, seed=seed, rng=rng)
+        ):
+        super().__init__(maze=maze, seed=seed)
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma
@@ -108,9 +108,8 @@ class QLearningTime(BaseAgent):
         gamma: float = DefaultParams.GAMMA,
         beta: float = DefaultParams.BETA,
         seed: int | None = None,
-        rng: np.random.Generator | None = None
     ):
-        super().__init__(maze=maze, beta=beta, seed=seed, rng=rng)
+        super().__init__(maze=maze, beta=beta, seed=seed)
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma

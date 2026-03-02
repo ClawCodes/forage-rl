@@ -25,9 +25,8 @@ class MBRL(BaseAgent):
         num_planning_steps: int = DefaultParams.NUM_PLANNING_STEPS,
         beta: float = DefaultParams.BETA,
         seed: int | None = None,
-        rng: np.random.Generator | None = None
     ):
-        super().__init__(maze=maze, beta=beta, seed=seed, rng=rng)
+        super().__init__(maze=maze, beta=beta, seed=seed)
         self.num_episodes = num_episodes
         self.gamma = gamma
         self.num_planning_steps = num_planning_steps
