@@ -9,7 +9,9 @@ import numpy as np
 from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
 from forage_rl.config import FIGURES_DIR, ensure_directories
-from forage_rl.utils import get_run_count, load_logprobs
+from forage_rl.environments.maze import Maze
+from forage_rl.types import Trajectory
+from forage_rl.utils import get_run_count, load_logprobs, load_trajectories
 
 
 def plot_model_comparison(
@@ -176,6 +178,111 @@ def plot_cumulative_sum_accuracy(
     return fig
 
 
+def _draw_model_accuracies(
+    ax: plt.Axes,
+    source: str,
+    compare_to: list[str],
+    num_datasets: Optional[int] = None,
+) -> None:
+    """Draw paired win-rate bars for source vs each agent in compare_to onto ax."""
+    comparisons = [a for a in compare_to if a != source]
+    if not comparisons:
+        ax.text(
+            0.5, 0.5, "No comparisons", ha="center", va="center", transform=ax.transAxes
+        )
+        return
+
+    num_datasets = num_datasets or get_run_count(source)
+    if num_datasets == 0:
+        ax.text(
+            0.5,
+            0.5,
+            f"No data for '{source}'",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        return
+
+    source_wins = {ev: 0 for ev in comparisons}
+    for i in range(num_datasets):
+        source_final = load_logprobs(f"source_{source}_eval_{source}", i)[-1]
+        for ev in comparisons:
+            eval_final = load_logprobs(f"source_{source}_eval_{ev}", i)[-1]
+            if source_final > eval_final:
+                source_wins[ev] += 1
+
+    n = len(comparisons)
+    x = np.arange(n)
+    width = 0.35
+    eval_colors = ["#e74c3c", "#2ecc71", "#f39c12", "#9b59b6"]
+
+    source_rates = [source_wins[ev] / num_datasets for ev in comparisons]
+    eval_rates = [1 - r for r in source_rates]
+
+    ax.bar(x - width / 2, source_rates, width, label=source, color="#3498db")
+    for i, (ev, rate) in enumerate(zip(comparisons, eval_rates)):
+        ax.bar(
+            x[i] + width / 2,
+            rate,
+            width,
+            label=ev if i == 0 or ev not in comparisons[:i] else "_nolegend_",
+            color=eval_colors[i % len(eval_colors)],
+        )
+
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Win Rate", fontsize=12)
+    ax.set_xlabel("Comparison", fontsize=12)
+    ax.set_title(f"Model Accuracy on '{source}'-Generated Trajectories", fontsize=14)
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [f"{source} vs {ev}" for ev in comparisons], rotation=30, ha="right"
+    )
+    ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance (0.50)")
+    ax.legend()
+
+    for i, (s_rate, e_rate) in enumerate(zip(source_rates, eval_rates)):
+        ax.text(
+            x[i] - width / 2,
+            min(s_rate + 0.02, 0.97),
+            f"{s_rate:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
+        ax.text(
+            x[i] + width / 2,
+            min(e_rate + 0.02, 0.97),
+            f"{e_rate:.2f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
+
+
+def _draw_cumulative_reward(ax: plt.Axes, trajectory: "Trajectory") -> None:
+    """Draw cumulative reward over transitions onto ax."""
+    rewards = [t.reward for t in trajectory.transitions]
+    ax.plot(np.cumsum(rewards), linewidth=2, color="#2ecc71")
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel("Cumulative Reward", fontsize=12)
+    ax.set_title("Cumulative Reward Over Time", fontsize=14)
+
+
+def _draw_residency_location(
+    ax: plt.Axes, trajectory: "Trajectory", maze: "Maze"
+) -> None:
+    """Draw state residency scatter plot onto ax."""
+    states = [t.state for t in trajectory.transitions]
+    state_labels = maze.state_labels or [f"State {s}" for s in range(maze.num_states)]
+    ax.scatter(range(len(states)), states, s=8, alpha=0.6, color="#3498db")
+    ax.set_yticks(range(maze.num_states))
+    ax.set_yticklabels(state_labels)
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel("Location", fontsize=12)
+    ax.set_title("Residency Location Over Time", fontsize=14)
+
+
 def plot_model_accuracies_from_trajectory_type(
     source: str,
     compare_to: list[str],
@@ -183,76 +290,22 @@ def plot_model_accuracies_from_trajectory_type(
     save: bool = False,
     show: bool = True,
 ):
-    """Plot bar chart showing how often each evaluator agent best explains a source trajectory type.
+    """Plot paired bar charts comparing source self-eval win rate against each evaluator.
 
-    The source agent is always included as an evaluator (self-recognition baseline).
-    Each bar shows the fraction of datasets where that evaluator assigned the highest
-    final cumulative log-likelihood among all evaluators.
+    For each agent in compare_to, shows a head-to-head comparison: the fraction of
+    datasets where the source agent assigns higher final log-likelihood than the evaluator
+    (and vice versa) on source-generated trajectories.
 
     Args:
         source: Agent type whose saved trajectories to load (e.g. "mbrl")
-        compare_to: Additional evaluator agent names to compare against the source
+        compare_to: Evaluator agent names to compare against the source (source excluded)
         num_datasets: Number of trajectory files to analyze; defaults to all available
         save: Whether to save the figure
         show: Whether to display the figure
     """
-    # Always include the source agent as a self-eval evaluator
-    evaluators = [source] + [a for a in compare_to if a != source]
-
-    num_datasets = num_datasets or get_run_count(source)
-    if num_datasets == 0:
-        print(
-            f"No log probability files found for source '{source}'. Run model_inference.py first."
-        )
-        return
-
-    win_counts = {ev: 0 for ev in evaluators}
-
-    for i in range(num_datasets):
-        final_logprobs = {}
-        for ev in evaluators:
-            label = f"source_{source}_eval_{ev}"
-            logprobs = load_logprobs(label, i)
-            final_logprobs[ev] = logprobs[-1]
-
-        winner = max(final_logprobs, key=final_logprobs.__getitem__)
-        win_counts[winner] += 1
-
-    accuracies = [win_counts[ev] / num_datasets for ev in evaluators]
-
-    fig, ax = plt.subplots(figsize=(15, 6))
-
-    colors = ["#3498db"] + ["#e74c3c", "#2ecc71", "#f39c12", "#9b59b6"][
-        : len(evaluators) - 1
-    ]
-    bars = ax.bar(evaluators, accuracies, color=colors)
-
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("Win Rate", fontsize=14)
-    ax.set_xlabel("Evaluator Agent", fontsize=14)
-    ax.set_title(f"Model Accuracy on '{source}'-Generated Trajectories", fontsize=16)
-
-    chance = 1 / len(evaluators)
-    ax.axhline(
-        y=chance,
-        color="gray",
-        linestyle="--",
-        alpha=0.7,
-        label=f"Chance ({chance:.2f})",
-    )
-    ax.legend()
-
-    for bar, acc in zip(bars, accuracies):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.02,
-            f"{acc:.2f}",
-            ha="center",
-            va="bottom",
-            fontsize=12,
-        )
-
-    plt.tight_layout()
+    n = len([a for a in compare_to if a != source])
+    fig, ax = plt.subplots(figsize=(max(6, 2.5 * n), 5), constrained_layout=True)
+    _draw_model_accuracies(ax, source, compare_to, num_datasets)
 
     if save:
         ensure_directories()
@@ -399,13 +452,262 @@ def plot_returns(q_agent: QLearning, show: bool = True):
     return fig
 
 
+def plot_cumulative_reward(
+    trajectory: "Trajectory",
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot cumulative reward over transitions for a single trajectory.
+
+    Args:
+        trajectory: Trajectory whose rewards to plot
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    _draw_cumulative_reward(ax, trajectory)
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / "cumulative_reward.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+    if show:
+        plt.show()
+    return fig
+
+
+def plot_residency_location(
+    trajectory: "Trajectory",
+    maze: "Maze",
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot state residency as a scatter plot over transitions.
+
+    Args:
+        trajectory: Trajectory whose states to plot
+        maze: Maze providing state labels
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+    _draw_residency_location(ax, trajectory, maze)
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / "residency_location.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+    if show:
+        plt.show()
+    return fig
+
+
+def plot_trajectory_stats(
+    trajectory: "Trajectory",
+    maze: "Maze",
+    source: str,
+    compare_to: list[str],
+    num_datasets: Optional[int] = None,
+    save: bool = False,
+    show: bool = True,
+):
+    """High-level overview of a trajectory combining reward, residency, and model accuracy.
+
+    Top row: cumulative reward (left) and residency location scatter (right).
+    Bottom row: head-to-head model accuracy comparing source against each agent in compare_to.
+
+    Args:
+        trajectory: Trajectory to visualise
+        maze: Maze providing state labels
+        source: Agent type that generated the trajectory (e.g. "q_learning")
+        compare_to: Agents to compare against source in the accuracy subplot
+        num_datasets: Number of pre-computed logprob files to use; defaults to all available
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig = plt.figure(figsize=(14, 8), constrained_layout=True)
+    gs = fig.add_gridspec(2, 2)
+
+    ax_reward = fig.add_subplot(gs[0, 0])
+    ax_residency = fig.add_subplot(gs[0, 1])
+    ax_accuracy = fig.add_subplot(gs[1, :])
+
+    _draw_cumulative_reward(ax_reward, trajectory)
+    _draw_residency_location(ax_residency, trajectory, maze)
+    _draw_model_accuracies(ax_accuracy, source, compare_to, num_datasets)
+
+    fig.suptitle(f"Trajectory Overview: '{source}'", fontsize=16, fontweight="bold")
+
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / f"trajectory_stats_{source}.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+    if show:
+        plt.show()
+    return fig
+
+
+def _draw_mean_cumulative_reward(
+    ax: plt.Axes,
+    trajectories: "list[Trajectory]",
+) -> None:
+    """Draw mean cumulative reward with ±1 SD shading across trajectories onto ax."""
+    cumsums = [np.cumsum([t.reward for t in traj.transitions]) for traj in trajectories]
+    min_len = min(len(c) for c in cumsums)
+    arr = np.array([c[:min_len] for c in cumsums])  # (n_trajs, min_len)
+    mean = arr.mean(axis=0)
+    std = arr.std(axis=0)
+    x = np.arange(min_len)
+    ax.plot(x, mean, linewidth=2, color="#2ecc71", label="Mean")
+    ax.fill_between(
+        x, mean - std, mean + std, alpha=0.3, color="#2ecc71", label="±1 SD"
+    )
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel("Cumulative Reward", fontsize=12)
+    ax.set_title(f"Mean Cumulative Reward (n={len(trajectories)})", fontsize=14)
+    ax.legend(fontsize=10)
+
+
+def _draw_modal_residency(
+    ax: plt.Axes,
+    trajectories: "list[Trajectory]",
+    maze: "Maze",
+) -> None:
+    """Draw the modal (most frequent) state at each time step across trajectories.
+
+    Marker size is proportional to the fraction of trajectories in the modal state.
+    """
+    state_seqs = [[t.state for t in traj.transitions] for traj in trajectories]
+    min_len = min(len(s) for s in state_seqs)
+    arr = np.array([s[:min_len] for s in state_seqs])  # (n_trajs, min_len)
+
+    modal_states = []
+    frequencies = []
+    for step in range(min_len):
+        counts = np.bincount(arr[:, step], minlength=maze.num_states)
+        modal = int(np.argmax(counts))
+        modal_states.append(modal)
+        frequencies.append(counts[modal] / len(trajectories))
+
+    sizes = np.array(frequencies) * 40
+    ax.scatter(range(min_len), modal_states, s=sizes, alpha=0.7, color="#3498db")
+    state_labels = maze.state_labels or [f"State {s}" for s in range(maze.num_states)]
+    ax.set_yticks(range(maze.num_states))
+    ax.set_yticklabels(state_labels)
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel("Location", fontsize=12)
+    ax.set_title(f"Modal Residency Location (n={len(trajectories)})", fontsize=14)
+
+
+def plot_mean_cumulative_reward(
+    trajectories: "list[Trajectory]",
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot mean cumulative reward with ±1 SD shading across a list of trajectories.
+
+    Args:
+        trajectories: Trajectories to aggregate
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    _draw_mean_cumulative_reward(ax, trajectories)
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / "mean_cumulative_reward.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+    if show:
+        plt.show()
+    return fig
+
+
+def plot_modal_residency(
+    trajectories: "list[Trajectory]",
+    maze: "Maze",
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot the modal state at each time step across a list of trajectories.
+
+    Args:
+        trajectories: Trajectories to aggregate
+        maze: Maze providing state labels
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+    _draw_modal_residency(ax, trajectories, maze)
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / "modal_residency.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+    if show:
+        plt.show()
+    return fig
+
+
+def plot_mean_trajectory_stats(
+    trajectories: "list[Trajectory]",
+    maze: "Maze",
+    source: str,
+    compare_to: list[str],
+    num_datasets: Optional[int] = None,
+    save: bool = False,
+    show: bool = True,
+):
+    """High-level overview aggregated across multiple trajectories.
+
+    Top row: mean cumulative reward with SD shading (left) and modal residency scatter (right).
+    Bottom row: head-to-head model accuracy comparing source against each agent in compare_to.
+
+    Args:
+        trajectories: Trajectories to aggregate
+        maze: Maze providing state labels
+        source: Agent type that generated the trajectories (e.g. "q_learning")
+        compare_to: Agents to compare against source in the accuracy subplot
+        num_datasets: Number of pre-computed logprob files to use; defaults to all available
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig = plt.figure(figsize=(14, 8), constrained_layout=True)
+    gs = fig.add_gridspec(2, 2)
+
+    ax_reward = fig.add_subplot(gs[0, 0])
+    ax_residency = fig.add_subplot(gs[0, 1])
+    ax_accuracy = fig.add_subplot(gs[1, :])
+
+    _draw_mean_cumulative_reward(ax_reward, trajectories)
+    _draw_modal_residency(ax_residency, trajectories, maze)
+    _draw_model_accuracies(ax_accuracy, source, compare_to, num_datasets)
+
+    fig.suptitle(
+        f"Average Trajectory Overview: '{source}' (n={len(trajectories)})",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / f"mean_trajectory_stats_{source}.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+    if show:
+        plt.show()
+    return fig
+
+
 if __name__ == "__main__":
-    print("Plotting model comparison results...")
-    plot_model_comparison(save=True)
-    plot_cumulative_sum_accuracy(save=True)
-    plot_model_accuracies_from_trajectory_type(
-        "mbrl", ["mbrl", "q_learning"], save=True
-    )
-    plot_model_accuracies_from_trajectory_type(
-        "q_learning", ["mbrl", "q_learning"], save=True
-    )
+    from forage_rl.environments.maze import SimpleMaze
+
+    maze = SimpleMaze()
+    trajectory = load_trajectories("q_learning", 0)
+    plot_trajectory_stats(trajectory, maze, "q_learning", ["mbrl"], save=True)
+
+    trajectories = [
+        load_trajectories("q_learning", i) for i in range(get_run_count("q_learning"))
+    ]
+    plot_mean_trajectory_stats(trajectories, maze, "q_learning", ["mbrl"], save=True)
