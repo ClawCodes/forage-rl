@@ -6,7 +6,8 @@ from typing import Optional
 import numpy as np
 
 from forage_rl import Trajectory
-from forage_rl.environments import SimpleMaze
+from forage_rl.agents.registry import Agent
+from forage_rl.environments import Maze, load_builtin_maze_spec
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.utils import load_trajectories, save_logprobs, get_run_count
 from forage_rl.config import ensure_directories
@@ -14,12 +15,14 @@ from forage_rl.config import ensure_directories
 
 def evaluate_trajectory(
     trajectory: Trajectory,
-    agents: list[str] | None = None,
-) -> dict[str, np.ndarray]:
+    maze_name: str = "simple",
+    agents: list[Agent] | None = None,
+) -> dict[Agent, np.ndarray]:
     """Evaluate a trajectory under each specified agent model.
 
     Args:
         trajectory: Instance of Trajectory
+        maze_name: Built-in maze spec name used to initialise evaluator agents
         agents: Agent names to evaluate with; defaults to all registered agents
 
     Returns:
@@ -28,16 +31,18 @@ def evaluate_trajectory(
     if agents is None:
         agents = registered_agents()
 
+    maze_spec = load_builtin_maze_spec(maze_name)
     results = {}
     for agent_name in agents:
-        agent = get_agent(agent_name, SimpleMaze())
+        agent = get_agent(agent_name, Maze(maze_spec))
         results[agent_name] = np.array(agent.simulate(trajectory))
     return results
 
 
 def run_inference_experiment(
-    source_agents: list[str] | None = None,
-    compare_to: list[str] | None = None,
+    source_agents: list[Agent] | None = None,
+    compare_to: list[Agent] | None = None,
+    maze_name: str = "simple",
     num_datasets: Optional[int] = None,
     verbose: bool = True,
 ):
@@ -49,6 +54,7 @@ def run_inference_experiment(
     Args:
         source_agents: Agents whose saved trajectories to evaluate; defaults to all registered
         compare_to: Agents to evaluate trajectories with; defaults to all registered
+        maze_name: Built-in maze spec name used for both loading trajectories and evaluating
         num_datasets: Number of trajectory files to process per source agent
         verbose: Whether to print progress
     """
@@ -60,25 +66,27 @@ def run_inference_experiment(
     ensure_directories()
 
     for source in source_agents:
-        n = min(num_datasets or get_run_count(source), get_run_count(source))
+        n = min(
+            num_datasets or get_run_count(source, maze_name),
+            get_run_count(source, maze_name),
+        )
         if n == 0:
             print(
-                f"No trajectory files for {source}. Run generate_trajectories.py first."
+                f"No trajectory files for {source.value}. Run generate_trajectories.py first."
             )
             continue
 
-        print(f"\nEvaluating {source}-generated trajectories...")
+        print(f"\nEvaluating {source.value}-generated trajectories...")
         for i in range(n):
-            trajectory = load_trajectories(source, i)
+            trajectory = load_trajectories(source, i, maze_name)
 
             if verbose:
-                print(f"\n  Dataset {i + 1}/{n} (source: {source})")
+                print(f"\n  Dataset {i + 1}/{n} (source: {source.value})")
 
-            results = evaluate_trajectory(trajectory, compare_to)
+            results = evaluate_trajectory(trajectory, maze_name, compare_to)
 
             for evaluator, log_liks in results.items():
-                label = f"source_{source}_eval_{evaluator}"
-                save_logprobs(np.cumsum(log_liks), label, i)
+                save_logprobs(np.cumsum(log_liks), source, evaluator, i, maze_name)
                 if verbose:
                     print(
                         f"  [{evaluator}] total log-likelihood: {np.sum(log_liks):.2f}"
@@ -108,6 +116,11 @@ def main():
         help="Number of datasets to process per source agent (default: all available)",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
+    parser.add_argument(
+        "--maze",
+        default="simple",
+        help="Built-in maze spec name (e.g. simple, full)",
+    )
 
     args = parser.parse_args()
 
@@ -119,6 +132,7 @@ def main():
     run_inference_experiment(
         source_agents=source_agents,
         compare_to=compare_to,
+        maze_name=args.maze,
         num_datasets=args.num_datasets,
         verbose=not args.quiet,
     )

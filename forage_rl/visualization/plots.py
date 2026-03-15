@@ -8,25 +8,31 @@ import numpy as np
 
 from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
+from forage_rl.agents.registry import Agent
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments.maze import Maze
+from forage_rl.environments.maze import maze_from_builtin_maze_spec
 from forage_rl.types import Trajectory
 from forage_rl.utils import get_run_count, load_logprobs, load_trajectories
 
 
 def plot_model_comparison(
-    num_datasets: Optional[int] = None, save: bool = False, show: bool = True
+    maze_name: str = "simple",
+    num_datasets: Optional[int] = None,
+    save: bool = False,
+    show: bool = True,
 ):
     """Plot bar chart comparing model classification accuracy.
 
     Args:
+        maze_name: Built-in maze spec name
         num_datasets: Number of datasets to analyze
         save: Whether to save the figure
         show: Whether to display the figure
     """
     num_datasets = num_datasets or min(
-        get_run_count("mbrl"),
-        get_run_count("q_learning"),
+        get_run_count(Agent.MBRL, maze_name),
+        get_run_count(Agent.QLearning, maze_name),
     )
 
     if num_datasets == 0:
@@ -38,8 +44,8 @@ def plot_model_comparison(
 
     for i in range(num_datasets):
         # MBRL-generated data: MBRL should have higher likelihood
-        mb_logprobs = load_logprobs("source_mbrl_eval_mbrl", i)
-        ql_logprobs = load_logprobs("source_mbrl_eval_q_learning", i)
+        mb_logprobs = load_logprobs(Agent.MBRL, Agent.MBRL, i, maze_name)
+        ql_logprobs = load_logprobs(Agent.MBRL, Agent.QLearning, i, maze_name)
 
         if mb_logprobs[-1] > ql_logprobs[-1]:
             mb_accuracies.append(1)
@@ -47,8 +53,8 @@ def plot_model_comparison(
             mb_accuracies.append(0)
 
         # Q-learning-generated data: Q-learning should have higher likelihood
-        mb_logprobs_ql = load_logprobs("source_q_learning_eval_mbrl", i)
-        ql_logprobs_ql = load_logprobs("source_q_learning_eval_q_learning", i)
+        mb_logprobs_ql = load_logprobs(Agent.QLearning, Agent.MBRL, i, maze_name)
+        ql_logprobs_ql = load_logprobs(Agent.QLearning, Agent.QLearning, i, maze_name)
 
         if ql_logprobs_ql[-1] > mb_logprobs_ql[-1]:
             ql_accuracies.append(1)
@@ -97,20 +103,24 @@ def plot_model_comparison(
 
 
 def plot_cumulative_sum_accuracy(
-    num_datasets: Optional[int] = None, save: bool = False, show: bool = True
+    maze_name: str = "simple",
+    num_datasets: Optional[int] = None,
+    save: bool = False,
+    show: bool = True,
 ):
     """Plot accuracy as a function of observed transitions.
 
     Shows how classification accuracy improves as more transitions are observed.
 
     Args:
+        maze_name: Built-in maze spec name
         num_datasets: Number of datasets to analyze
         save: Whether to save the figure
         show: Whether to display the figure
     """
     num_datasets = num_datasets or min(
-        get_run_count("mbrl"),
-        get_run_count("q_learning"),
+        get_run_count(Agent.MBRL, maze_name),
+        get_run_count(Agent.QLearning, maze_name),
     )
 
     if num_datasets == 0:
@@ -121,8 +131,8 @@ def plot_cumulative_sum_accuracy(
 
     for j in range(num_datasets):
         # MBRL-generated data
-        mb_cumsum = load_logprobs("source_mbrl_eval_mbrl", j)
-        ql_cumsum = load_logprobs("source_mbrl_eval_q_learning", j)
+        mb_cumsum = load_logprobs(Agent.MBRL, Agent.MBRL, j, maze_name)
+        ql_cumsum = load_logprobs(Agent.MBRL, Agent.QLearning, j, maze_name)
 
         accuracy_mb = np.zeros(len(mb_cumsum))
         for i in range(len(mb_cumsum)):
@@ -135,8 +145,8 @@ def plot_cumulative_sum_accuracy(
         accuracies.append(accuracy_mb)
 
         # Q-learning-generated data
-        mb_cumsum_ql = load_logprobs("source_q_learning_eval_mbrl", j)
-        ql_cumsum_ql = load_logprobs("source_q_learning_eval_q_learning", j)
+        mb_cumsum_ql = load_logprobs(Agent.QLearning, Agent.MBRL, j, maze_name)
+        ql_cumsum_ql = load_logprobs(Agent.QLearning, Agent.QLearning, j, maze_name)
 
         accuracy_ql = np.zeros(len(mb_cumsum_ql))
         for i in range(len(mb_cumsum_ql)):
@@ -180,8 +190,9 @@ def plot_cumulative_sum_accuracy(
 
 def _draw_model_accuracies(
     ax: plt.Axes,
-    source: str,
-    compare_to: list[str],
+    source: Agent,
+    compare_to: list[Agent],
+    maze_name: str = "simple",
     num_datasets: Optional[int] = None,
 ) -> None:
     """Draw paired win-rate bars for source vs each agent in compare_to onto ax."""
@@ -192,7 +203,7 @@ def _draw_model_accuracies(
         )
         return
 
-    num_datasets = num_datasets or get_run_count(source)
+    num_datasets = num_datasets or get_run_count(source, maze_name)
     if num_datasets == 0:
         ax.text(
             0.5,
@@ -206,9 +217,9 @@ def _draw_model_accuracies(
 
     source_wins = {ev: 0 for ev in comparisons}
     for i in range(num_datasets):
-        source_final = load_logprobs(f"source_{source}_eval_{source}", i)[-1]
+        source_final = load_logprobs(source, source, i, maze_name)[-1]
         for ev in comparisons:
-            eval_final = load_logprobs(f"source_{source}_eval_{ev}", i)[-1]
+            eval_final = load_logprobs(source, ev, i, maze_name)[-1]
             if source_final > eval_final:
                 source_wins[ev] += 1
 
@@ -284,8 +295,9 @@ def _draw_residency_location(
 
 
 def plot_model_accuracies_from_trajectory_type(
-    source: str,
-    compare_to: list[str],
+    source: Agent,
+    compare_to: list[Agent],
+    maze_name: str = "simple",
     num_datasets: Optional[int] = None,
     save: bool = False,
     show: bool = True,
@@ -305,7 +317,7 @@ def plot_model_accuracies_from_trajectory_type(
     """
     n = len([a for a in compare_to if a != source])
     fig, ax = plt.subplots(figsize=(max(6, 2.5 * n), 5), constrained_layout=True)
-    _draw_model_accuracies(ax, source, compare_to, num_datasets)
+    _draw_model_accuracies(ax, source, compare_to, maze_name, num_datasets)
 
     if save:
         ensure_directories()
@@ -505,8 +517,9 @@ def plot_residency_location(
 def plot_trajectory_stats(
     trajectory: "Trajectory",
     maze: "Maze",
-    source: str,
-    compare_to: list[str],
+    source: Agent,
+    compare_to: list[Agent],
+    maze_name: str = "simple",
     num_datasets: Optional[int] = None,
     save: bool = False,
     show: bool = True,
@@ -534,7 +547,7 @@ def plot_trajectory_stats(
 
     _draw_cumulative_reward(ax_reward, trajectory)
     _draw_residency_location(ax_residency, trajectory, maze)
-    _draw_model_accuracies(ax_accuracy, source, compare_to, num_datasets)
+    _draw_model_accuracies(ax_accuracy, source, compare_to, maze_name, num_datasets)
 
     fig.suptitle(f"Trajectory Overview: '{source}'", fontsize=16, fontweight="bold")
 
@@ -651,10 +664,11 @@ def plot_modal_residency(
 
 
 def plot_mean_trajectory_stats(
-    trajectories: "list[Trajectory]",
+    trajectories: list[Trajectory],
     maze: "Maze",
-    source: str,
-    compare_to: list[str],
+    source: Agent,
+    compare_to: list[Agent],
+    maze_name: str = "simple",
     num_datasets: Optional[int] = None,
     save: bool = False,
     show: bool = True,
@@ -682,7 +696,7 @@ def plot_mean_trajectory_stats(
 
     _draw_mean_cumulative_reward(ax_reward, trajectories)
     _draw_modal_residency(ax_residency, trajectories, maze)
-    _draw_model_accuracies(ax_accuracy, source, compare_to, num_datasets)
+    _draw_model_accuracies(ax_accuracy, source, compare_to, maze_name, num_datasets)
 
     fig.suptitle(
         f"Average Trajectory Overview: '{source}' (n={len(trajectories)})",
@@ -700,14 +714,25 @@ def plot_mean_trajectory_stats(
     return fig
 
 
-if __name__ == "__main__":
-    from forage_rl.environments.maze import SimpleMaze
-
-    maze = SimpleMaze()
-    trajectory = load_trajectories("q_learning", 0)
-    plot_trajectory_stats(trajectory, maze, "q_learning", ["mbrl"], save=True)
-
+def plot_all_trajectory_stats(
+    source: Agent,
+    compare_to: list[Agent],
+    maze_name: str = "simple",
+    save: bool = True,
+):
     trajectories = [
-        load_trajectories("q_learning", i) for i in range(get_run_count("q_learning"))
+        load_trajectories(source, i, maze_name)
+        for i in range(get_run_count(source, maze_name))
     ]
-    plot_mean_trajectory_stats(trajectories, maze, "q_learning", ["mbrl"], save=True)
+    maze = maze_from_builtin_maze_spec(maze_name)
+    plot_mean_trajectory_stats(
+        trajectories, maze, source, compare_to, maze_name, save=save
+    )
+
+
+if __name__ == "__main__":
+    plot_all_trajectory_stats(Agent.MBRL, [Agent.QLearning], maze_name="simple")
+    # plot_all_trajectory_stats(Agent.QLearning, [Agent.MBRL], maze_name="simple")
+
+    # plot_all_trajectory_stats("mbrl", ["q_learning"], maze_name="full")
+    # plot_all_trajectory_stats("q_learning", ["mbrl"], maze_name="full")

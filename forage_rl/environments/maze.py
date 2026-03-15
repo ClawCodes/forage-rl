@@ -20,6 +20,10 @@ from .specs import (
 from ..config import DefaultParams
 
 
+def maze_from_builtin_maze_spec(name: str = "simple") -> "Maze":
+    return Maze(load_builtin_maze_spec(name))
+
+
 class ForagingReward:
     """Models time-dependent reward depletion in a foraging patch."""
 

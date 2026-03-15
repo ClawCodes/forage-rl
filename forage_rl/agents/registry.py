@@ -1,5 +1,6 @@
 """Shared registry mapping agent names to constructor factories."""
 
+from enum import StrEnum
 from typing import Callable
 
 from forage_rl.agents.base import BaseAgent
@@ -9,17 +10,24 @@ from forage_rl.config import DefaultParams
 
 AgentFactory = Callable[..., BaseAgent]
 
-AGENT_REGISTRY: dict[str, AgentFactory] = {
-    "mbrl": lambda maze, num_episodes=DefaultParams.NUM_EPISODES: MBRL(
+
+class Agent(StrEnum):
+    MBRL = "mbrl"
+    QLearning = "q_learning"
+
+
+AGENT_REGISTRY: dict[Agent, AgentFactory] = {
+    Agent.MBRL: lambda maze, num_episodes=DefaultParams.NUM_EPISODES: MBRL(
         maze, num_episodes=num_episodes, gamma=DefaultParams.GAMMA
     ),
-    "q_learning": lambda maze, num_episodes=DefaultParams.NUM_EPISODES: QLearningTime(
+    Agent.QLearning: lambda maze,
+    num_episodes=DefaultParams.NUM_EPISODES: QLearningTime(
         maze, num_episodes=num_episodes, alpha=DefaultParams.ALPHA
     ),
 }
 
 
-def get_agent(name: str, maze, **kwargs) -> BaseAgent:
+def get_agent(name: Agent, maze, **kwargs) -> BaseAgent:
     if name not in AGENT_REGISTRY:
         raise ValueError(
             f"Unknown agent: {name!r}. Available: {list(AGENT_REGISTRY.keys())}"
@@ -27,5 +35,5 @@ def get_agent(name: str, maze, **kwargs) -> BaseAgent:
     return AGENT_REGISTRY[name](maze, **kwargs)
 
 
-def registered_agents() -> list[str]:
+def registered_agents() -> list[Agent]:
     return list(AGENT_REGISTRY.keys())
