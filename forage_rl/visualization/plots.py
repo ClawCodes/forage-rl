@@ -103,74 +103,63 @@ def plot_model_comparison(
 
 
 def plot_cumulative_sum_accuracy(
+    source: Agent,
+    compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
     save: bool = False,
     show: bool = True,
 ):
-    """Plot accuracy as a function of observed transitions.
+    """Plot source-model win rate over observed transitions against each evaluator.
 
-    Shows how classification accuracy improves as more transitions are observed.
+    For each evaluator in compare_to (excluding source), plots the fraction of
+    timesteps where the source model's cumulative log-likelihood exceeds the
+    evaluator's, averaged across runs.
 
     Args:
+        source: Agent whose trajectories are being evaluated
+        compare_to: Agents to compare against
         maze_name: Built-in maze spec name
-        num_datasets: Number of datasets to analyze
+        num_datasets: Number of datasets to analyze; defaults to all available
         save: Whether to save the figure
         show: Whether to display the figure
     """
-    num_datasets = num_datasets or min(
-        get_run_count(Agent.MBRL, maze_name),
-        get_run_count(Agent.QLearning, maze_name),
-    )
+    comparisons = [a for a in compare_to if a != source]
+    if not comparisons:
+        print("No comparisons to plot.")
+        return
 
+    num_datasets = num_datasets or get_run_count(source, maze_name)
     if num_datasets == 0:
         print("No log probability files found. Run model_inference.py first.")
         return
 
-    accuracies = []
-
-    for j in range(num_datasets):
-        # MBRL-generated data
-        mb_cumsum = load_logprobs(Agent.MBRL, Agent.MBRL, j, maze_name)
-        ql_cumsum = load_logprobs(Agent.MBRL, Agent.QLearning, j, maze_name)
-
-        accuracy_mb = np.zeros(len(mb_cumsum))
-        for i in range(len(mb_cumsum)):
-            if np.isclose(mb_cumsum[i], ql_cumsum[i]):
-                accuracy_mb[i] = 0.5  # Tie
-            elif mb_cumsum[i] > ql_cumsum[i]:
-                accuracy_mb[i] = 1
-            else:
-                accuracy_mb[i] = 0
-        accuracies.append(accuracy_mb)
-
-        # Q-learning-generated data
-        mb_cumsum_ql = load_logprobs(Agent.QLearning, Agent.MBRL, j, maze_name)
-        ql_cumsum_ql = load_logprobs(Agent.QLearning, Agent.QLearning, j, maze_name)
-
-        accuracy_ql = np.zeros(len(mb_cumsum_ql))
-        for i in range(len(mb_cumsum_ql)):
-            if np.isclose(mb_cumsum_ql[i], ql_cumsum_ql[i]):
-                accuracy_ql[i] = 0.5  # Tie
-            elif ql_cumsum_ql[i] > mb_cumsum_ql[i]:
-                accuracy_ql[i] = 1
-            else:
-                accuracy_ql[i] = 0
-        accuracies.append(accuracy_ql)
-
-    # Compute average accuracy
-    avg_accuracy = np.mean(accuracies, axis=0)
-
-    # Plot
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    ax.plot(avg_accuracy, linewidth=3, color="#2ecc71")
-    ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance")
+    for evaluator in comparisons:
+        accuracies = []
+        for j in range(num_datasets):
+            source_cumsum = load_logprobs(source, source, j, maze_name)
+            eval_cumsum = load_logprobs(source, evaluator, j, maze_name)
 
+            accuracy = np.where(
+                np.isclose(source_cumsum, eval_cumsum),
+                0.5,
+                (source_cumsum > eval_cumsum).astype(float),
+            )
+            accuracies.append(accuracy)
+
+        avg_accuracy = np.mean(accuracies, axis=0)
+        ax.plot(avg_accuracy, linewidth=3, label=evaluator.value)
+
+    ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance")
     ax.set_ylim(0.4, 1.0)
     ax.set_xlabel("Number of Observed Transitions", fontsize=16)
     ax.set_ylabel("Prediction Accuracy", fontsize=16)
-    ax.set_title("Classification Accuracy vs. Sample Size", fontsize=16)
+    ax.set_title(
+        f"Classification Accuracy over Sample Size (Trajectory source: {source.value})",
+        fontsize=16,
+    )
     ax.tick_params(axis="both", labelsize=12)
     ax.legend(fontsize=12)
 
@@ -178,7 +167,7 @@ def plot_cumulative_sum_accuracy(
 
     if save:
         ensure_directories()
-        filepath = FIGURES_DIR / "cumulative_accuracy.png"
+        filepath = FIGURES_DIR / f"cumulative_accuracy_{source.value}.png"
         plt.savefig(filepath, dpi=150)
         print(f"Saved to {filepath}")
 
@@ -731,8 +720,10 @@ def plot_all_trajectory_stats(
 
 
 if __name__ == "__main__":
-    plot_all_trajectory_stats(Agent.MBRL, [Agent.QLearning], maze_name="simple")
+    # plot_all_trajectory_stats(Agent.MBRL, [Agent.QLearning], maze_name="simple")
     # plot_all_trajectory_stats(Agent.QLearning, [Agent.MBRL], maze_name="simple")
 
     # plot_all_trajectory_stats("mbrl", ["q_learning"], maze_name="full")
     # plot_all_trajectory_stats("q_learning", ["mbrl"], maze_name="full")
+
+    plot_cumulative_sum_accuracy(Agent.QLearning, [Agent.MBRL])
