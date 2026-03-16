@@ -1,5 +1,5 @@
-"""NeuroSandBox: Reinforcement learning experiments for model-based vs model-free learning."""
+"""forage-rl: foraging-maze RL experiments for replay-based model comparison."""
 
-from .types import Transition, TimedTransition, Trajectory
+from .types import ObservedTimedTransition, TimedTransition, Trajectory, Transition
 
-__all__ = ["Transition", "TimedTransition", "Trajectory"]
+__all__ = ["ObservedTimedTransition", "Transition", "TimedTransition", "Trajectory"]

@@ -32,7 +32,7 @@ class Transition(BaseModel):
 
     def __iter__(self):
         """Iterate over field values in definition order."""
-        for name in self.model_fields:
+        for name in type(self).model_fields:
             yield getattr(self, name)
 
 
@@ -48,10 +48,11 @@ class TimedTransition(Transition):
     """
 
     time_spent: int
+    done: bool = False
 
     @classmethod
     def from_transition_time(
-        cls, transition: Transition, time: int
+        cls, transition: Transition, time: int, done: bool = False
     ) -> "TimedTransition":
         """Create a TimedTransition from a Transition and time value.
 
@@ -68,6 +69,39 @@ class TimedTransition(Transition):
             reward=transition.reward,
             next_state=transition.next_state,
             time_spent=time,
+            done=done,
+        )
+
+
+class ObservedTimedTransition(TimedTransition):
+    """Timed transition with hidden-state metadata for POMDP rollouts.
+
+    ``state`` and ``next_state`` are the agent-visible states used for replay.
+    ``true_state`` and ``true_next_state`` preserve the underlying hidden states
+    for analysis and plotting.
+    """
+
+    true_state: int
+    true_next_state: int
+
+    @classmethod
+    def from_transition_time_truth(
+        cls,
+        transition: Transition,
+        time: int,
+        true_state: int,
+        true_next_state: int,
+        done: bool = False,
+    ) -> "ObservedTimedTransition":
+        return cls(
+            state=transition.state,
+            action=transition.action,
+            reward=transition.reward,
+            next_state=transition.next_state,
+            time_spent=time,
+            done=done,
+            true_state=true_state,
+            true_next_state=true_next_state,
         )
 
 
@@ -88,6 +122,7 @@ class Trajectory(BaseModel, Generic[T]):
     """
 
     transitions: list[T]
+    terminal_flags_present: bool = True
 
     @classmethod
     def from_numpy(cls, arr: np.ndarray, transition_cls: type[T]) -> "Trajectory[T]":
@@ -102,6 +137,16 @@ class Trajectory(BaseModel, Generic[T]):
             A Trajectory containing the transitions from the array.
         """
         fields = list(transition_cls.model_fields.keys())
+        if arr.ndim != 2:
+            raise ValueError(
+                f"Trajectory array must be 2D. Got array with shape {arr.shape}."
+            )
+        if arr.shape[1] != len(fields):
+            raise ValueError(
+                "Trajectory array column count does not match transition schema. "
+                f"Expected {len(fields)} columns for {transition_cls.__name__}, "
+                f"got {arr.shape[1]}."
+            )
         transitions = [transition_cls(**dict(zip(fields, row))) for row in arr]
         return cls(transitions=transitions)
 
@@ -110,8 +155,11 @@ class Trajectory(BaseModel, Generic[T]):
 
         Returns:
             A 2D array where each row is a transition and columns correspond
-            to the fields in order.
+            to the fields in order. Empty trajectories serialize to a
+            shape-``(0, 0)`` array.
         """
+        if not self.transitions:
+            return np.empty((0, 0))
         return np.array([list(t) for t in self.transitions])
 
     def __iter__(self):

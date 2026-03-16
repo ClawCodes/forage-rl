@@ -22,11 +22,24 @@ def ensure_directories():
 class DefaultParams:
     """Default constants used across training, inference, and planning."""
 
+    # Reproducibility
+    BASE_SEED = 0  # Base seed for deterministic per-run seeding
+
     # Learning parameters
-    ALPHA = 0.1  # Learning rate for Q-learning
+    ALPHA = 0.1  # Learning rate
     GAMMA = 0.9  # Discount factor
     EPSILON = 0.1  # Exploration rate (epsilon-greedy)
     BETA = 1.0  # Inverse temperature for Boltzmann exploration
+
+    # DQN/RDQN parameters
+    DQN_LEARNING_RATE = 1e-3
+    DQN_HIDDEN_DIM = 64
+    DQN_REPLAY_SIZE = 10_000
+    DQN_BATCH_SIZE = 64
+    DQN_TARGET_UPDATE_INTERVAL = 100
+    DQN_REPLAY_WARMUP = 200
+    RDQN_SEQUENCE_LENGTH = 8
+    RDQN_BATCH_SIZE = 16
 
     # Training parameters
     NUM_EPISODES = 200
@@ -38,5 +51,4 @@ class DefaultParams:
 
     # Value iteration parameters
     NUM_PLANNING_STEPS = 10
-    CONVERGENCE_THRESHOLD = 0.01
-    MAX_TIME_SPENT = 10
+    CONVERGENCE_THRESHOLD = 1e-8
