@@ -7,7 +7,7 @@ import numpy as np
 
 from forage_rl import Trajectory
 from forage_rl.agents.registry import Agent
-from forage_rl.environments import Maze, load_builtin_maze_spec
+from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.utils import load_trajectories, save_logprobs, get_run_count
 from forage_rl.config import ensure_directories
@@ -17,6 +17,7 @@ def evaluate_trajectory(
     trajectory: Trajectory,
     maze_name: str = "simple",
     agents: list[Agent] | None = None,
+    observable: bool = True,
 ) -> dict[Agent, np.ndarray]:
     """Evaluate a trajectory under each specified agent model.
 
@@ -24,6 +25,7 @@ def evaluate_trajectory(
         trajectory: Instance of Trajectory
         maze_name: Built-in maze spec name used to initialise evaluator agents
         agents: Agent names to evaluate with; defaults to all registered agents
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
         Dictionary mapping agent name to array of per-transition log-likelihoods
@@ -32,9 +34,10 @@ def evaluate_trajectory(
         agents = registered_agents()
 
     maze_spec = load_builtin_maze_spec(maze_name)
+    maze_cls = Maze if observable else MazePOMDP
     results = {}
     for agent_name in agents:
-        agent = get_agent(agent_name, Maze(maze_spec))
+        agent = get_agent(agent_name, maze_cls(maze_spec))
         results[agent_name] = np.array(agent.simulate(trajectory))
     return results
 
@@ -44,6 +47,7 @@ def run_inference_experiment(
     compare_to: list[Agent] | None = None,
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
+    observable: bool = True,
     verbose: bool = True,
 ):
     """Run the full model inference experiment.
@@ -56,6 +60,7 @@ def run_inference_experiment(
         compare_to: Agents to evaluate trajectories with; defaults to all registered
         maze_name: Built-in maze spec name used for both loading trajectories and evaluating
         num_datasets: Number of trajectory files to process per source agent
+        observable: True for fully observable (FO), False for partially observable (PO)
         verbose: Whether to print progress
     """
     if source_agents is None:
@@ -67,8 +72,8 @@ def run_inference_experiment(
 
     for source in source_agents:
         n = min(
-            num_datasets or get_run_count(source, maze_name),
-            get_run_count(source, maze_name),
+            num_datasets or get_run_count(source, maze_name, observable),
+            get_run_count(source, maze_name, observable),
         )
         if n == 0:
             print(
@@ -78,15 +83,17 @@ def run_inference_experiment(
 
         print(f"\nEvaluating {source.value}-generated trajectories...")
         for i in range(n):
-            trajectory = load_trajectories(source, i, maze_name)
+            trajectory = load_trajectories(source, i, maze_name, observable)
 
             if verbose:
                 print(f"\n  Dataset {i + 1}/{n} (source: {source.value})")
 
-            results = evaluate_trajectory(trajectory, maze_name, compare_to)
+            results = evaluate_trajectory(trajectory, maze_name, compare_to, observable)
 
             for evaluator, log_liks in results.items():
-                save_logprobs(np.cumsum(log_liks), source, evaluator, i, maze_name)
+                save_logprobs(
+                    np.cumsum(log_liks), source, evaluator, i, maze_name, observable
+                )
                 if verbose:
                     print(
                         f"  [{evaluator}] total log-likelihood: {np.sum(log_liks):.2f}"
@@ -121,6 +128,11 @@ def main():
         default="simple",
         help="Built-in maze spec name (e.g. simple, full)",
     )
+    parser.add_argument(
+        "--pomdp",
+        action="store_true",
+        help="Use partially observable trajectories (PO); default is fully observable (FO)",
+    )
 
     args = parser.parse_args()
 
@@ -134,6 +146,7 @@ def main():
         compare_to=compare_to,
         maze_name=args.maze,
         num_datasets=args.num_datasets,
+        observable=not args.pomdp,
         verbose=not args.quiet,
     )
 

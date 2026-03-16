@@ -3,7 +3,7 @@
 import argparse
 
 from forage_rl.agents.registry import Agent
-from forage_rl.environments import Maze, load_builtin_maze_spec
+from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.utils import save_trajectories
 from forage_rl.config import DefaultParams, ensure_directories
@@ -14,6 +14,7 @@ def generate_trajectories(
     maze_name: str = "simple",
     num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
     num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
+    observable: bool = True,
     verbose: bool = True,
 ):
     """Generate trajectories from a registered agent.
@@ -23,6 +24,7 @@ def generate_trajectories(
         maze_name: Built-in maze spec name (e.g. "simple", "full")
         num_runs: Number of independent training runs
         num_episodes: Episodes per run
+        observable: True for fully observable (FO), False for partially observable (PO)
         verbose: Whether to print progress
     """
     ensure_directories()
@@ -32,11 +34,12 @@ def generate_trajectories(
         if verbose:
             print(f"\n{'=' * 50}\n{agent_type} Run {i + 1}/{num_runs}\n{'=' * 50}")
 
-        maze = Maze(maze_spec)
+        maze_cls = Maze if observable else MazePOMDP
+        maze = maze_cls(maze_spec)
         agent = get_agent(agent_type, maze, num_episodes=num_episodes)
         transitions = agent.train(verbose=False)
 
-        filepath = save_trajectories(transitions, agent_type, i, maze_name)
+        filepath = save_trajectories(transitions, agent_type, i, maze_name, observable)
         if verbose:
             print(f"Saved {len(transitions)} transitions to {filepath}")
 
@@ -67,6 +70,11 @@ def main():
         default="simple",
         help="Built-in maze spec name (e.g. simple, full)",
     )
+    parser.add_argument(
+        "--pomdp",
+        action="store_true",
+        help="Use partially observable maze (PO); default is fully observable (FO)",
+    )
 
     args = parser.parse_args()
     verbose = not args.quiet
@@ -81,6 +89,7 @@ def main():
             maze_name=args.maze,
             num_runs=args.num_runs,
             num_episodes=args.num_episodes,
+            observable=not args.pomdp,
             verbose=verbose,
         )
 

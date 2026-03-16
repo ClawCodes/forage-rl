@@ -111,7 +111,9 @@ class QLearningTime(BaseAgent):
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma
-        self.q_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
+        self.q_table = np.zeros(
+            (maze.observation_space.n, maze.horizon, maze.num_actions)
+        )
 
     def choose_action(self, state: int, time_spent: int) -> int:
         """Choose action using Boltzmann exploration."""

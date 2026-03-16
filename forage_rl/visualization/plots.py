@@ -10,7 +10,7 @@ from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.registry import Agent
 from forage_rl.config import FIGURES_DIR, ensure_directories
-from forage_rl.environments.maze import Maze
+from forage_rl.environments.maze import Maze, MazeMDP, MazePOMDP
 from forage_rl.environments.maze import maze_from_builtin_maze_spec
 from forage_rl.types import Trajectory
 from forage_rl.utils import get_run_count, load_logprobs, load_trajectories
@@ -22,6 +22,7 @@ def _draw_cumulative_accuracy(
     compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
+    observable: bool = True,
 ) -> None:
     """Draw per-evaluator win-rate-over-time lines onto ax."""
     comparisons = [a for a in compare_to if a != source]
@@ -31,7 +32,7 @@ def _draw_cumulative_accuracy(
         )
         return
 
-    num_datasets = num_datasets or get_run_count(source, maze_name)
+    num_datasets = num_datasets or get_run_count(source, maze_name, observable)
     if num_datasets == 0:
         ax.text(
             0.5,
@@ -46,8 +47,8 @@ def _draw_cumulative_accuracy(
     for evaluator in comparisons:
         accuracies = []
         for j in range(num_datasets):
-            source_cumsum = load_logprobs(source, source, j, maze_name)
-            eval_cumsum = load_logprobs(source, evaluator, j, maze_name)
+            source_cumsum = load_logprobs(source, source, j, maze_name, observable)
+            eval_cumsum = load_logprobs(source, evaluator, j, maze_name, observable)
             accuracy = np.where(
                 np.isclose(source_cumsum, eval_cumsum),
                 0.5,
@@ -71,6 +72,7 @@ def plot_cumulative_sum_accuracy(
     compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
+    observable: bool = True,
     save: bool = False,
     show: bool = True,
 ):
@@ -85,6 +87,7 @@ def plot_cumulative_sum_accuracy(
         compare_to: Agents to compare against
         maze_name: Built-in maze spec name
         num_datasets: Number of datasets to analyze; defaults to all available
+        observable: True for fully observable (FO), False for partially observable (PO)
         save: Whether to save the figure
         show: Whether to display the figure
     """
@@ -94,7 +97,9 @@ def plot_cumulative_sum_accuracy(
         return
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    _draw_cumulative_accuracy(ax, source, compare_to, maze_name, num_datasets)
+    _draw_cumulative_accuracy(
+        ax, source, compare_to, maze_name, num_datasets, observable
+    )
     ax.set_title(
         f"Classification Accuracy over Sample Size (Trajectory source: {source.value})",
         fontsize=16,
@@ -120,6 +125,7 @@ def _draw_model_accuracies(
     compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
+    observable: bool = True,
 ) -> None:
     """Draw paired win-rate bars for source vs each agent in compare_to onto ax."""
     comparisons = [a for a in compare_to if a != source]
@@ -129,7 +135,7 @@ def _draw_model_accuracies(
         )
         return
 
-    num_datasets = num_datasets or get_run_count(source, maze_name)
+    num_datasets = num_datasets or get_run_count(source, maze_name, observable)
     if num_datasets == 0:
         ax.text(
             0.5,
@@ -143,9 +149,9 @@ def _draw_model_accuracies(
 
     source_wins = {ev: 0 for ev in comparisons}
     for i in range(num_datasets):
-        source_final = load_logprobs(source, source, i, maze_name)[-1]
+        source_final = load_logprobs(source, source, i, maze_name, observable)[-1]
         for ev in comparisons:
-            eval_final = load_logprobs(source, ev, i, maze_name)[-1]
+            eval_final = load_logprobs(source, ev, i, maze_name, observable)[-1]
             if source_final > eval_final:
                 source_wins[ev] += 1
 
@@ -223,6 +229,7 @@ def plot_model_accuracies_from_trajectory_type(
     compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
+    observable: bool = True,
     save: bool = False,
     show: bool = True,
 ):
@@ -236,12 +243,13 @@ def plot_model_accuracies_from_trajectory_type(
         source: Agent type whose saved trajectories to load (e.g. "mbrl")
         compare_to: Evaluator agent names to compare against the source (source excluded)
         num_datasets: Number of trajectory files to analyze; defaults to all available
+        observable: True for fully observable (FO), False for partially observable (PO)
         save: Whether to save the figure
         show: Whether to display the figure
     """
     n = len([a for a in compare_to if a != source])
     fig, ax = plt.subplots(figsize=(max(6, 2.5 * n), 5), constrained_layout=True)
-    _draw_model_accuracies(ax, source, compare_to, maze_name, num_datasets)
+    _draw_model_accuracies(ax, source, compare_to, maze_name, num_datasets, observable)
 
     if save:
         ensure_directories()
@@ -554,7 +562,7 @@ def plot_mean_cumulative_reward(
 
 def plot_modal_residency(
     trajectories: "list[Trajectory]",
-    maze: "Maze",
+    maze: MazeMDP,
     save: bool = False,
     show: bool = True,
 ):
@@ -580,7 +588,7 @@ def plot_modal_residency(
 
 def plot_mean_trajectory_stats(
     trajectories: list[Trajectory],
-    maze: "Maze",
+    maze: MazeMDP,
     source: Agent,
     save: bool = False,
     show: bool = True,
@@ -612,7 +620,11 @@ def plot_mean_trajectory_stats(
 
     if save:
         ensure_directories()
-        filepath = FIGURES_DIR / f"mean_trajectory_stats_{source}.png"
+        obs_tag = "PO" if isinstance(maze, MazePOMDP) else "FO"
+        filepath = (
+            FIGURES_DIR
+            / f"mean_trajectory_stats_{source}_{maze.maze_spec.maze.name}_{obs_tag}.png"
+        )
         plt.savefig(filepath, dpi=150)
         print(f"Saved to {filepath}")
     if show:
@@ -623,6 +635,7 @@ def plot_mean_trajectory_stats(
 def plot_aggregate_trajectory_stats(
     source: Agent,
     maze_name: str = "simple",
+    observable: bool = True,
     save: bool = True,
 ) -> None:
     """Load all saved trajectories for source and plot aggregate trajectory stats.
@@ -632,13 +645,14 @@ def plot_aggregate_trajectory_stats(
     Args:
         source: Agent whose saved trajectories to load
         maze_name: Built-in maze spec name
+        observable: True for fully observable (FO), False for partially observable (PO)
         save: Whether to save the figure
     """
     trajectories = [
-        load_trajectories(source, i, maze_name)
-        for i in range(get_run_count(source, maze_name))
+        load_trajectories(source, i, maze_name, observable)
+        for i in range(get_run_count(source, maze_name, observable))
     ]
-    maze = maze_from_builtin_maze_spec(maze_name)
+    maze = maze_from_builtin_maze_spec(maze_name, observable)
     plot_mean_trajectory_stats(trajectories, maze, source, save=save)
 
 
@@ -647,6 +661,7 @@ def plot_aggregate_comparison(
     compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
+    observable: bool = True,
     save: bool = False,
     show: bool = True,
 ):
@@ -660,6 +675,7 @@ def plot_aggregate_comparison(
         compare_to: Agents to compare against
         maze_name: Built-in maze spec name
         num_datasets: Number of datasets to analyze; defaults to all available
+        observable: True for fully observable (FO), False for partially observable (PO)
         save: Whether to save the figure
         show: Whether to display the figure
     """
@@ -667,8 +683,12 @@ def plot_aggregate_comparison(
         1, 2, figsize=(16, 6), constrained_layout=True
     )
 
-    _draw_model_accuracies(ax_bars, source, compare_to, maze_name, num_datasets)
-    _draw_cumulative_accuracy(ax_lines, source, compare_to, maze_name, num_datasets)
+    _draw_model_accuracies(
+        ax_bars, source, compare_to, maze_name, num_datasets, observable
+    )
+    _draw_cumulative_accuracy(
+        ax_lines, source, compare_to, maze_name, num_datasets, observable
+    )
 
     fig.suptitle(
         f"Model Comparison: '{source.value}' vs evaluators",
@@ -678,7 +698,12 @@ def plot_aggregate_comparison(
 
     if save:
         ensure_directories()
-        filepath = FIGURES_DIR / f"aggregate_comparison_{source.value}.png"
+        comparisons = "_".join([a for a in compare_to])
+        obs_tag = "FO" if observable else "PO"
+        filepath = (
+            FIGURES_DIR
+            / f"agg_compare_{source.value}_to_{comparisons}_{maze_name}_{obs_tag}.png"
+        )
         plt.savefig(filepath, dpi=150)
         print(f"Saved to {filepath}")
 
@@ -689,6 +714,28 @@ def plot_aggregate_comparison(
 
 
 if __name__ == "__main__":
-    plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="simple")
-    plot_aggregate_comparison(Agent.MBRL, [Agent.QLearning], maze_name="simple")
-    plot_aggregate_comparison(Agent.QLearning, [Agent.MBRL], maze_name="simple")
+    plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="simple", save=True)
+    plot_aggregate_comparison(
+        Agent.MBRL, [Agent.QLearning], maze_name="simple", save=True
+    )
+    plot_aggregate_comparison(
+        Agent.QLearning, [Agent.MBRL], maze_name="simple", save=True
+    )
+
+    plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="full", save=True)
+    plot_aggregate_comparison(
+        Agent.MBRL, [Agent.QLearning], maze_name="full", save=True
+    )
+    plot_aggregate_comparison(
+        Agent.QLearning, [Agent.MBRL], maze_name="full", save=True
+    )
+
+    plot_aggregate_trajectory_stats(
+        Agent.MBRL, maze_name="full", observable=False, save=True
+    )
+    plot_aggregate_comparison(
+        Agent.MBRL, [Agent.QLearning], maze_name="full", observable=False, save=True
+    )
+    plot_aggregate_comparison(
+        Agent.QLearning, [Agent.MBRL], maze_name="full", observable=False, save=True
+    )
