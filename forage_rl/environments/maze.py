@@ -1,6 +1,7 @@
 """Foraging maze environments driven by validated maze specifications."""
 
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import gymnasium as gym
@@ -42,6 +43,24 @@ class ForagingReward:
         return 1.0 if self.rng.random() < reward_prob else 0.0
 
 
+@dataclass(frozen=True)
+class TransitionDetails:
+    """Transition plus visible/hidden state metadata."""
+
+    transition: Transition
+    done: bool
+    true_state: int
+    true_next_state: int
+
+
+@dataclass(frozen=True)
+class TransitionTiming:
+    """Elapsed time and reset semantics for a transition."""
+
+    elapsed_time: int
+    resets_time_spent: bool
+
+
 class Maze(gym.Env):
     """
     Maze environment with transitions and rewards defined by a TOML spec.
@@ -71,10 +90,15 @@ class Maze(gym.Env):
         self.rng = rng or np.random.default_rng(seed)
         self.num_states = self.maze_spec.num_states
         self.num_actions = self.maze_spec.num_actions
+        self.agent_num_states = self.num_states
         self.decays = self.maze_spec.decays
         self.state_labels = self.maze_spec.state_labels
+        self.agent_state_labels = list(self.state_labels)
+        self.true_num_states = self.num_states
+        self.true_state_labels = list(self.state_labels)
         self.action_labels = list(self.maze_spec.maze.action_labels)
         self.initial_state = self.maze_spec.maze.initial_state
+        self.agent_initial_state = self.initial_state
 
         # Gymnasium spaces
         self.observation_space = Discrete(self.num_states)
@@ -95,6 +119,43 @@ class Maze(gym.Env):
             }
 
         self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
+
+    def _transition_timing(
+        self,
+        *,
+        state: int,
+        next_state: int,
+        action: int | None = None,
+        true_state: int | None = None,
+        true_next_state: int | None = None,
+    ) -> TransitionTiming:
+        """Return elapsed time and reset semantics for a transition."""
+        concrete_state = state if true_state is None else true_state
+        concrete_next_state = next_state if true_next_state is None else true_next_state
+
+        if action is None:
+            if self.maze_spec.uses_transition_durations:
+                raise ValueError(
+                    "action is required to compute time progression for duration-aware mazes"
+                )
+            elapsed_time = 1
+        else:
+            elapsed_time = self.transition_duration(
+                concrete_state, action, concrete_next_state
+            )
+
+        return TransitionTiming(
+            elapsed_time=elapsed_time,
+            resets_time_spent=concrete_state != concrete_next_state,
+        )
+
+    def _next_time_spent_from_timing(
+        self, *, time_spent: int, timing: TransitionTiming
+    ) -> int:
+        """Convert transition timing into the next time-spent feature."""
+        if timing.resets_time_spent:
+            return 0
+        return min(time_spent + timing.elapsed_time, self.horizon - 1)
 
     @classmethod
     def from_file(
@@ -208,23 +269,23 @@ class Maze(gym.Env):
         self._validate_action(action)
         prev_state = self.state
         next_state = self._sample_next_state(prev_state, action)
-        duration = self.transition_duration(prev_state, action, next_state)
+        timing = Maze._transition_timing(
+            self,
+            state=prev_state,
+            next_state=next_state,
+            action=action,
+        )
         reward = self._get_reward(next_state)
 
         self.state = next_state
-        self.time += duration
+        self.time += timing.elapsed_time
         truncated = self.time >= self.horizon
 
         info = {"prev_state": prev_state, "action": action}
         return self.state, reward, False, truncated, info
 
-    # Backward compatible interface
-    def step_transition(self, action: int) -> tuple[Transition, bool]:
-        """Execute action and return ``(Transition, done)``.
-
-        Convenience wrapper around ``step()`` for agents that expect the
-        legacy ``(Transition, bool)`` interface.
-        """
+    def step_transition_details(self, action: int) -> TransitionDetails:
+        """Execute action and return visible and hidden-state transition metadata."""
         obs, reward, terminated, truncated, info = self.step(action)
         transition = Transition(
             state=info["prev_state"],
@@ -233,7 +294,42 @@ class Maze(gym.Env):
             next_state=obs,
         )
         done = terminated or truncated
-        return transition, done
+        return TransitionDetails(
+            transition=transition,
+            done=done,
+            true_state=info["prev_state"],
+            true_next_state=self.state,
+        )
+
+    # Backward compatible interface
+    def step_transition(self, action: int) -> tuple[Transition, bool]:
+        """Execute action and return ``(Transition, done)``.
+
+        Convenience wrapper around ``step()`` for agents that expect the
+        legacy ``(Transition, bool)`` interface.
+        """
+        details = self.step_transition_details(action)
+        return details.transition, details.done
+
+    def next_time_spent(
+        self,
+        *,
+        state: int,
+        next_state: int,
+        time_spent: int,
+        action: int | None = None,
+        true_state: int | None = None,
+        true_next_state: int | None = None,
+    ) -> int:
+        """Return the next ``time_spent`` value for time-aware agents."""
+        timing = self._transition_timing(
+            state=state,
+            next_state=next_state,
+            action=action,
+            true_state=true_state,
+            true_next_state=true_next_state,
+        )
+        return self._next_time_spent_from_timing(time_spent=time_spent, timing=timing)
 
 
 class MazePOMDP(Maze):
@@ -254,13 +350,92 @@ class MazePOMDP(Maze):
             horizon=horizon,
         )
         self._state_to_observation_group = self._build_state_observation_map()
+        self._observation_transition_timings = (
+            self._build_observation_transition_timings()
+        )
         self.num_observations = len(set(self._state_to_observation_group.values()))
+        self.agent_num_states = self.num_observations
+        self.agent_state_labels = [
+            f"Observation {i}" for i in range(self.num_observations)
+        ]
+        self.agent_initial_state = self.observe(self.initial_state)
         self.observation_space = Discrete(self.num_observations)
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
 
         return {state.id: state.observation_group for state in self.maze_spec.states}
+
+    def _build_observation_transition_timings(
+        self,
+    ) -> dict[tuple[int, int, int], TransitionTiming]:
+        """Infer observation-level timing semantics from concrete transitions."""
+        grouped_timings: dict[tuple[int, int, int], list[TransitionTiming]] = {}
+        for transition_row in self.maze_spec.transitions:
+            observation_transition = (
+                self._state_to_observation_group[transition_row.state],
+                transition_row.action,
+                self._state_to_observation_group[transition_row.next_state],
+            )
+            grouped_timings.setdefault(observation_transition, []).append(
+                TransitionTiming(
+                    elapsed_time=self.transition_duration(
+                        transition_row.state,
+                        transition_row.action,
+                        transition_row.next_state,
+                    ),
+                    resets_time_spent=transition_row.state != transition_row.next_state,
+                )
+            )
+
+        observation_timings: dict[tuple[int, int, int], TransitionTiming] = {}
+        for observation_transition, timings in grouped_timings.items():
+            elapsed_times = {timing.elapsed_time for timing in timings}
+            reset_semantics = {timing.resets_time_spent for timing in timings}
+            if len(elapsed_times) != 1 or len(reset_semantics) != 1:
+                # Observation-only planning is ill-defined when aliased hidden states
+                # disagree on elapsed time or whether time_spent should reset.
+                raise ValueError(
+                    "Observation-level timing is ambiguous for "
+                    f"observation={observation_transition[0]}, "
+                    f"action={observation_transition[1]}, "
+                    f"next_observation={observation_transition[2]}"
+                )
+            observation_timings[observation_transition] = timings[0]
+
+        return observation_timings
+
+    def _transition_timing(
+        self,
+        *,
+        state: int,
+        next_state: int,
+        action: int | None = None,
+        true_state: int | None = None,
+        true_next_state: int | None = None,
+    ) -> TransitionTiming:
+        """Return timing semantics in either hidden or observation space."""
+        if true_state is not None and true_next_state is not None:
+            return super()._transition_timing(
+                state=state,
+                next_state=next_state,
+                action=action,
+                true_state=true_state,
+                true_next_state=true_next_state,
+            )
+        if action is None:
+            raise ValueError(
+                "action is required to compute observation-level time progression"
+            )
+
+        transition_key = (state, action, next_state)
+        try:
+            return self._observation_transition_timings[transition_key]
+        except KeyError as exc:
+            raise ValueError(
+                "No observation-level timing semantics defined for "
+                f"observation={state}, action={action}, next_observation={next_state}"
+            ) from exc
 
     def observe(self, state: Optional[int] = None) -> int:
         """Return observation group id for a state (or current state by default)."""
@@ -284,6 +459,25 @@ class MazePOMDP(Maze):
         _, reward, terminated, truncated, info = super().step(action)
         info["true_state"] = self.state
         return self.observe(), reward, terminated, truncated, info
+
+    def step_transition_details(self, action: int) -> TransitionDetails:
+        """Execute action and return visible transition plus hidden-state metadata."""
+        true_prev_state = self.state
+        prev_observation = self.observe(true_prev_state)
+        obs, reward, terminated, truncated, info = self.step(action)
+        done = terminated or truncated
+        transition = Transition(
+            state=prev_observation,
+            action=info["action"],
+            reward=reward,
+            next_state=obs,
+        )
+        return TransitionDetails(
+            transition=transition,
+            done=done,
+            true_state=true_prev_state,
+            true_next_state=info["true_state"],
+        )
 
 
 def _simple_spec_from_decays(

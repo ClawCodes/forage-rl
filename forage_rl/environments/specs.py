@@ -128,15 +128,18 @@ class MazeSpec(BaseModel):
         if not isinstance(states_raw, dict):
             return data
 
+        expanded_data = dict(data)
+
         # Accept 'actions' as alias for 'action_labels' in maze meta
-        maze_raw = data.get("maze", {})
+        maze_raw = expanded_data.get("maze", {})
         if (
             isinstance(maze_raw, dict)
             and "actions" in maze_raw
             and "action_labels" not in maze_raw
         ):
+            maze_raw = dict(maze_raw)
             maze_raw["action_labels"] = maze_raw.pop("actions")
-            data["maze"] = maze_raw
+            expanded_data["maze"] = maze_raw
 
         action_labels = maze_raw.get("action_labels")
 
@@ -150,9 +153,10 @@ class MazeSpec(BaseModel):
 
         for state_key, state_body in states_raw.items():
             state_id = int(state_key)
-            transitions_raw = state_body.pop("transitions", {})
+            state_body_copy = dict(state_body)
+            transitions_raw = state_body_copy.pop("transitions", {})
 
-            flat_states.append({"id": state_id, **state_body})
+            flat_states.append({"id": state_id, **state_body_copy})
 
             for action_name, outcomes in transitions_raw.items():
                 action_idx = action_index.get(action_name)
@@ -189,9 +193,9 @@ class MazeSpec(BaseModel):
                             f"[next_state, prob, duration], got {outcome}"
                         )
 
-        data["states"] = flat_states
-        data["transitions"] = flat_transitions
-        return data
+        expanded_data["states"] = flat_states
+        expanded_data["transitions"] = flat_transitions
+        return expanded_data
 
     @staticmethod
     def _is_consecutive(sequence: Sequence[int]) -> bool:
@@ -206,6 +210,10 @@ class MazeSpec(BaseModel):
             raise ValueError("transitions must contain at least one entry")
         if not self.maze.action_labels:
             raise ValueError("maze.action_labels must contain at least one entry")
+        if any(not action_label.strip() for action_label in self.maze.action_labels):
+            raise ValueError("maze.action_labels must not contain empty labels")
+        if len(set(self.maze.action_labels)) != len(self.maze.action_labels):
+            raise ValueError("maze.action_labels must not contain duplicates")
 
         state_ids = [state_spec.id for state_spec in self.states]
 
