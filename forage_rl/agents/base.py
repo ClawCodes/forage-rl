@@ -57,7 +57,9 @@ class BaseAgent(ABC):
                 "Replay requires terminal-aware TimedTransition trajectories. "
                 "Regenerate trajectories with terminal flags before running replay."
             )
-        if any(not isinstance(transition, TimedTransition) for transition in trajectory):
+        if any(
+            not isinstance(transition, TimedTransition) for transition in trajectory
+        ):
             raise TypeError("Replay requires TimedTransition trajectory data")
 
     def get_policy(self) -> np.ndarray:

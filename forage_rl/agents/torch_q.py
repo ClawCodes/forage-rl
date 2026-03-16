@@ -29,7 +29,9 @@ def resolve_torch_device(
     if isinstance(requested_device, torch.device):
         requested = str(requested_device)
     else:
-        requested = "auto" if requested_device is None else str(requested_device).strip()
+        requested = (
+            "auto" if requested_device is None else str(requested_device).strip()
+        )
 
     if requested == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,9 +39,7 @@ def resolve_torch_device(
         return torch.device("cpu")
     if requested == "cuda" or requested.startswith("cuda:"):
         if not torch.cuda.is_available():
-            raise ValueError(
-                "CUDA was requested but is not available on this machine."
-            )
+            raise ValueError("CUDA was requested but is not available on this machine.")
         device = torch.device(requested)
         device_index = 0 if device.index is None else device.index
         cuda_device_count = torch.cuda.device_count()
@@ -156,8 +156,11 @@ class TorchQAgentBase(BaseAgent, ABC):
         self.hidden_dim = hidden_dim
         self.device = resolve_torch_device(device)
         self.log_floor = 1e-12
-        self.policy_net: nn.Module
+        self.policy_net: nn.Module = nn.Identity()
+        self.target_net: nn.Module = nn.Identity()
         self.optimizer: torch.optim.Optimizer
+        self.target_update_interval = 1
+        self.update_steps = 0
 
         if seed is not None:
             torch.manual_seed(seed)
