@@ -1,7 +1,7 @@
 [project]
 name = "forage-rl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Foraging-maze reinforcement learning experiments for replay-based model comparison"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "numpy>=2.4.1",
     "pydantic>=2.12.5",
+    "torch>=2.6.0",
 ]
 
 [build-system]
