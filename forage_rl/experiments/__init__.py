@@ -1,1 +1,1 @@
-"""Experiment scripts for training agents and running model inference."""
+"""Experiment entrypoints for generation, inference, plotting, and scheduling."""
