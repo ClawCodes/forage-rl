@@ -16,90 +16,54 @@ from forage_rl.types import Trajectory
 from forage_rl.utils import get_run_count, load_logprobs, load_trajectories
 
 
-def plot_model_comparison(
+def _draw_cumulative_accuracy(
+    ax: plt.Axes,
+    source: Agent,
+    compare_to: list[Agent],
     maze_name: str = "simple",
     num_datasets: Optional[int] = None,
-    save: bool = False,
-    show: bool = True,
-):
-    """Plot bar chart comparing model classification accuracy.
-
-    Args:
-        maze_name: Built-in maze spec name
-        num_datasets: Number of datasets to analyze
-        save: Whether to save the figure
-        show: Whether to display the figure
-    """
-    num_datasets = num_datasets or min(
-        get_run_count(Agent.MBRL, maze_name),
-        get_run_count(Agent.QLearning, maze_name),
-    )
-
-    if num_datasets == 0:
-        print("No log probability files found. Run model_inference.py first.")
+) -> None:
+    """Draw per-evaluator win-rate-over-time lines onto ax."""
+    comparisons = [a for a in compare_to if a != source]
+    if not comparisons:
+        ax.text(
+            0.5, 0.5, "No comparisons", ha="center", va="center", transform=ax.transAxes
+        )
         return
 
-    mb_accuracies = []
-    ql_accuracies = []
-
-    for i in range(num_datasets):
-        # MBRL-generated data: MBRL should have higher likelihood
-        mb_logprobs = load_logprobs(Agent.MBRL, Agent.MBRL, i, maze_name)
-        ql_logprobs = load_logprobs(Agent.MBRL, Agent.QLearning, i, maze_name)
-
-        if mb_logprobs[-1] > ql_logprobs[-1]:
-            mb_accuracies.append(1)
-        else:
-            mb_accuracies.append(0)
-
-        # Q-learning-generated data: Q-learning should have higher likelihood
-        mb_logprobs_ql = load_logprobs(Agent.QLearning, Agent.MBRL, i, maze_name)
-        ql_logprobs_ql = load_logprobs(Agent.QLearning, Agent.QLearning, i, maze_name)
-
-        if ql_logprobs_ql[-1] > mb_logprobs_ql[-1]:
-            ql_accuracies.append(1)
-        else:
-            ql_accuracies.append(0)
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    accuracies = [np.mean(mb_accuracies), np.mean(ql_accuracies)]
-    bars = ax.bar(
-        ["Model-Based RL", "Q-Learning"], accuracies, color=["#3498db", "#e74c3c"]
-    )
-
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("Classification Accuracy", fontsize=14)
-    ax.set_title("Model Comparison: Classification Accuracy", fontsize=16)
-
-    # Add value labels on bars
-    for bar, acc in zip(bars, accuracies):
+    num_datasets = num_datasets or get_run_count(source, maze_name)
+    if num_datasets == 0:
         ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.02,
-            f"{acc:.2f}",
+            0.5,
+            0.5,
+            f"No data for '{source}'",
             ha="center",
-            va="bottom",
-            fontsize=12,
+            va="center",
+            transform=ax.transAxes,
         )
+        return
 
-    # Add chance line
+    for evaluator in comparisons:
+        accuracies = []
+        for j in range(num_datasets):
+            source_cumsum = load_logprobs(source, source, j, maze_name)
+            eval_cumsum = load_logprobs(source, evaluator, j, maze_name)
+            accuracy = np.where(
+                np.isclose(source_cumsum, eval_cumsum),
+                0.5,
+                (source_cumsum > eval_cumsum).astype(float),
+            )
+            accuracies.append(accuracy)
+
+        avg_accuracy = np.mean(accuracies, axis=0)
+        ax.plot(avg_accuracy, linewidth=3, label=evaluator.value)
+
     ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance")
-    ax.legend()
-
-    plt.tight_layout()
-
-    if save:
-        ensure_directories()
-        filepath = FIGURES_DIR / "model_comparison.png"
-        plt.savefig(filepath, dpi=150)
-        print(f"Saved to {filepath}")
-
-    if show:
-        plt.show()
-
-    return fig
+    ax.set_ylim(0.4, 1.0)
+    ax.set_xlabel("Number of Observed Transitions", fontsize=16)
+    ax.set_ylabel("Prediction Accuracy", fontsize=16)
+    ax.tick_params(axis="both", labelsize=12)
+    ax.legend(fontsize=12)
 
 
 def plot_cumulative_sum_accuracy(
@@ -129,39 +93,12 @@ def plot_cumulative_sum_accuracy(
         print("No comparisons to plot.")
         return
 
-    num_datasets = num_datasets or get_run_count(source, maze_name)
-    if num_datasets == 0:
-        print("No log probability files found. Run model_inference.py first.")
-        return
-
     fig, ax = plt.subplots(figsize=(10, 6))
-
-    for evaluator in comparisons:
-        accuracies = []
-        for j in range(num_datasets):
-            source_cumsum = load_logprobs(source, source, j, maze_name)
-            eval_cumsum = load_logprobs(source, evaluator, j, maze_name)
-
-            accuracy = np.where(
-                np.isclose(source_cumsum, eval_cumsum),
-                0.5,
-                (source_cumsum > eval_cumsum).astype(float),
-            )
-            accuracies.append(accuracy)
-
-        avg_accuracy = np.mean(accuracies, axis=0)
-        ax.plot(avg_accuracy, linewidth=3, label=evaluator.value)
-
-    ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance")
-    ax.set_ylim(0.4, 1.0)
-    ax.set_xlabel("Number of Observed Transitions", fontsize=16)
-    ax.set_ylabel("Prediction Accuracy", fontsize=16)
+    _draw_cumulative_accuracy(ax, source, compare_to, maze_name, num_datasets)
     ax.set_title(
         f"Classification Accuracy over Sample Size (Trajectory source: {source.value})",
         fontsize=16,
     )
-    ax.tick_params(axis="both", labelsize=12)
-    ax.legend(fontsize=12)
 
     plt.tight_layout()
 
@@ -235,9 +172,7 @@ def _draw_model_accuracies(
     ax.set_xlabel("Comparison", fontsize=12)
     ax.set_title(f"Model Accuracy on '{source}'-Generated Trajectories", fontsize=14)
     ax.set_xticks(x)
-    ax.set_xticklabels(
-        [f"{source} vs {ev}" for ev in comparisons], rotation=30, ha="right"
-    )
+    ax.set_xticklabels([f"{source} vs {ev}" for ev in comparisons], ha="right")
     ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance (0.50)")
     ax.legend()
 
@@ -507,36 +442,27 @@ def plot_trajectory_stats(
     trajectory: "Trajectory",
     maze: "Maze",
     source: Agent,
-    compare_to: list[Agent],
-    maze_name: str = "simple",
-    num_datasets: Optional[int] = None,
     save: bool = False,
     show: bool = True,
 ):
-    """High-level overview of a trajectory combining reward, residency, and model accuracy.
+    """High-level overview of a single trajectory: cumulative reward and residency.
 
-    Top row: cumulative reward (left) and residency location scatter (right).
-    Bottom row: head-to-head model accuracy comparing source against each agent in compare_to.
+    Left panel: cumulative reward over transitions.
+    Right panel: state residency scatter plot.
 
     Args:
         trajectory: Trajectory to visualise
         maze: Maze providing state labels
-        source: Agent type that generated the trajectory (e.g. "q_learning")
-        compare_to: Agents to compare against source in the accuracy subplot
-        num_datasets: Number of pre-computed logprob files to use; defaults to all available
+        source: Agent type that generated the trajectory
         save: Whether to save the figure
         show: Whether to display the figure
     """
-    fig = plt.figure(figsize=(14, 8), constrained_layout=True)
-    gs = fig.add_gridspec(2, 2)
-
-    ax_reward = fig.add_subplot(gs[0, 0])
-    ax_residency = fig.add_subplot(gs[0, 1])
-    ax_accuracy = fig.add_subplot(gs[1, :])
+    fig, (ax_reward, ax_residency) = plt.subplots(
+        1, 2, figsize=(14, 5), constrained_layout=True
+    )
 
     _draw_cumulative_reward(ax_reward, trajectory)
     _draw_residency_location(ax_residency, trajectory, maze)
-    _draw_model_accuracies(ax_accuracy, source, compare_to, maze_name, num_datasets)
 
     fig.suptitle(f"Trajectory Overview: '{source}'", fontsize=16, fontweight="bold")
 
@@ -656,36 +582,27 @@ def plot_mean_trajectory_stats(
     trajectories: list[Trajectory],
     maze: "Maze",
     source: Agent,
-    compare_to: list[Agent],
-    maze_name: str = "simple",
-    num_datasets: Optional[int] = None,
     save: bool = False,
     show: bool = True,
 ):
     """High-level overview aggregated across multiple trajectories.
 
-    Top row: mean cumulative reward with SD shading (left) and modal residency scatter (right).
-    Bottom row: head-to-head model accuracy comparing source against each agent in compare_to.
+    Left panel: mean cumulative reward with SD shading.
+    Right panel: modal residency scatter plot.
 
     Args:
         trajectories: Trajectories to aggregate
         maze: Maze providing state labels
-        source: Agent type that generated the trajectories (e.g. "q_learning")
-        compare_to: Agents to compare against source in the accuracy subplot
-        num_datasets: Number of pre-computed logprob files to use; defaults to all available
+        source: Agent type that generated the trajectories
         save: Whether to save the figure
         show: Whether to display the figure
     """
-    fig = plt.figure(figsize=(14, 8), constrained_layout=True)
-    gs = fig.add_gridspec(2, 2)
-
-    ax_reward = fig.add_subplot(gs[0, 0])
-    ax_residency = fig.add_subplot(gs[0, 1])
-    ax_accuracy = fig.add_subplot(gs[1, :])
+    fig, (ax_reward, ax_residency) = plt.subplots(
+        1, 2, figsize=(14, 5), constrained_layout=True
+    )
 
     _draw_mean_cumulative_reward(ax_reward, trajectories)
     _draw_modal_residency(ax_residency, trajectories, maze)
-    _draw_model_accuracies(ax_accuracy, source, compare_to, maze_name, num_datasets)
 
     fig.suptitle(
         f"Average Trajectory Overview: '{source}' (n={len(trajectories)})",
@@ -703,27 +620,75 @@ def plot_mean_trajectory_stats(
     return fig
 
 
-def plot_all_trajectory_stats(
+def plot_aggregate_trajectory_stats(
     source: Agent,
-    compare_to: list[Agent],
     maze_name: str = "simple",
     save: bool = True,
-):
+) -> None:
+    """Load all saved trajectories for source and plot aggregate trajectory stats.
+
+    Produces a 2-panel figure: mean cumulative reward (left) and modal residency (right).
+
+    Args:
+        source: Agent whose saved trajectories to load
+        maze_name: Built-in maze spec name
+        save: Whether to save the figure
+    """
     trajectories = [
         load_trajectories(source, i, maze_name)
         for i in range(get_run_count(source, maze_name))
     ]
     maze = maze_from_builtin_maze_spec(maze_name)
-    plot_mean_trajectory_stats(
-        trajectories, maze, source, compare_to, maze_name, save=save
+    plot_mean_trajectory_stats(trajectories, maze, source, save=save)
+
+
+def plot_aggregate_comparison(
+    source: Agent,
+    compare_to: list[Agent],
+    maze_name: str = "simple",
+    num_datasets: Optional[int] = None,
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot a 2-panel model comparison figure for source vs evaluators.
+
+    Left panel: overall win-rate bar chart.
+    Right panel: win rate over observed transitions (cumulative accuracy).
+
+    Args:
+        source: Agent whose trajectories are being evaluated
+        compare_to: Agents to compare against
+        maze_name: Built-in maze spec name
+        num_datasets: Number of datasets to analyze; defaults to all available
+        save: Whether to save the figure
+        show: Whether to display the figure
+    """
+    fig, (ax_bars, ax_lines) = plt.subplots(
+        1, 2, figsize=(16, 6), constrained_layout=True
     )
+
+    _draw_model_accuracies(ax_bars, source, compare_to, maze_name, num_datasets)
+    _draw_cumulative_accuracy(ax_lines, source, compare_to, maze_name, num_datasets)
+
+    fig.suptitle(
+        f"Model Comparison: '{source.value}' vs evaluators",
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    if save:
+        ensure_directories()
+        filepath = FIGURES_DIR / f"aggregate_comparison_{source.value}.png"
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+
+    if show:
+        plt.show()
+
+    return fig
 
 
 if __name__ == "__main__":
-    # plot_all_trajectory_stats(Agent.MBRL, [Agent.QLearning], maze_name="simple")
-    # plot_all_trajectory_stats(Agent.QLearning, [Agent.MBRL], maze_name="simple")
-
-    # plot_all_trajectory_stats("mbrl", ["q_learning"], maze_name="full")
-    # plot_all_trajectory_stats("q_learning", ["mbrl"], maze_name="full")
-
-    plot_cumulative_sum_accuracy(Agent.QLearning, [Agent.MBRL])
+    plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="simple")
+    plot_aggregate_comparison(Agent.MBRL, [Agent.QLearning], maze_name="simple")
+    plot_aggregate_comparison(Agent.QLearning, [Agent.MBRL], maze_name="simple")
