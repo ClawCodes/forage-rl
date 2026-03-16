@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from forage_rl import Trajectory
+from forage_rl import TimedTransition, Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
 
@@ -40,13 +40,25 @@ class BaseAgent(ABC):
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:
         """Compute Boltzmann (softmax) action probabilities."""
-        exp_values = np.exp(q_values * self.beta)
+        scaled_values = np.asarray(q_values, dtype=float) * self.beta
+        shifted_values = scaled_values - np.max(scaled_values)
+        exp_values = np.exp(shifted_values)
         return exp_values / np.sum(exp_values)
 
     def choose_action_boltzmann(self, q_values: np.ndarray) -> int:
         """Choose action using Boltzmann exploration."""
         action_probs = self.boltzmann_action_probs(q_values)
         return int(self.rng.choice(len(q_values), p=action_probs))
+
+    def validate_replay_trajectory(self, trajectory: Trajectory) -> None:
+        """Reject replay inputs that do not carry timed terminal-aware transitions."""
+        if not trajectory.terminal_flags_present:
+            raise ValueError(
+                "Replay requires terminal-aware TimedTransition trajectories. "
+                "Regenerate trajectories with terminal flags before running replay."
+            )
+        if any(not isinstance(transition, TimedTransition) for transition in trajectory):
+            raise TypeError("Replay requires TimedTransition trajectory data")
 
     def get_policy(self) -> np.ndarray:
         """Extract greedy policy from Q-table."""
@@ -63,29 +75,37 @@ class BaseAgent(ABC):
             )
 
     @abstractmethod
-    def simulate(self, trajectory) -> list[float]:
-        """Evaluate log-likelihood of each transition under this agent's learning rule."""
+    def simulate(self, trajectory: Trajectory) -> list[float]:
+        """Evaluate replay log-likelihoods for terminal-aware timed transitions."""
         ...
 
     @abstractmethod
     def train(self, verbose: bool = True) -> Trajectory:
-        """Train the agent on the provided Maze"""
+        """Train the agent on the provided Maze."""
         ...
 
     def print_policy(self, max_time_to_display: int = 6):
         """Print the optimal policy for each state."""
         policy = self.get_policy()
+        action_labels = getattr(self.maze, "action_labels", None)
+
+        def action_label_for(action_idx: int) -> str:
+            if hasattr(self.maze, "get_action_label"):
+                return str(self.maze.get_action_label(action_idx))
+            if action_labels is not None:
+                return str(action_labels[action_idx])
+            return str(action_idx)
 
         if len(policy.shape) == 2:
             max_time = min(max_time_to_display, policy.shape[1])
             print("Optimal Policy:")
-            for s in range(self.maze.num_states):
+            for s in range(policy.shape[0]):
                 print(f"State {s}:")
                 for t in range(max_time):
-                    action = "Stay" if policy[s, t] == 0 else "Leave"
+                    action = action_label_for(int(policy[s, t]))
                     print(f"  Time {t}: {action}")
         else:
             print("Optimal Policy:")
-            for s in range(self.maze.num_states):
-                action = "Stay" if policy[s] == 0 else "Leave"
+            for s in range(policy.shape[0]):
+                action = action_label_for(int(policy[s]))
                 print(f"State {s}: {action}")
