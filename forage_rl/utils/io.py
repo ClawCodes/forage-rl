@@ -10,8 +10,16 @@ from forage_rl.agents.registry import Agent
 from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
 
 
+def _obs_tag(observable: bool) -> str:
+    return "FO" if observable else "PO"
+
+
 def save_trajectories(
-    trajectory: Trajectory, agent: Agent, run_id: int, maze_name: str
+    trajectory: Trajectory,
+    agent: Agent,
+    run_id: int,
+    maze_name: str,
+    observable: bool = True,
 ) -> Path:
     """Save trajectory data to organized directory.
 
@@ -20,18 +28,23 @@ def save_trajectories(
         agent: Agent that produced the trajectory
         run_id: Run identifier
         maze_name: Maze name (e.g., 'simple', 'full')
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
         Path to saved file
     """
     ensure_directories()
-    filename = f"{maze_name}_{agent.value}_trajectories_{run_id}.npy"
+    filename = (
+        f"{maze_name}_{_obs_tag(observable)}_{agent.value}_trajectories_{run_id}.npy"
+    )
     filepath = TRAJECTORIES_DIR / filename
     np.save(filepath, trajectory.to_numpy())
     return filepath
 
 
-def load_trajectories(agent: Agent, run_id: int, maze_name: str) -> Trajectory:
+def load_trajectories(
+    agent: Agent, run_id: int, maze_name: str, observable: bool = True
+) -> Trajectory:
     """Load trajectory data from organized directory.
 
     Automatically detects the transition type based on array shape:
@@ -42,11 +55,14 @@ def load_trajectories(agent: Agent, run_id: int, maze_name: str) -> Trajectory:
         agent: Agent name that produced the trajectory (e.g., 'mbrl', 'q_learning')
         run_id: Run identifier
         maze_name: Maze name (e.g., 'simple', 'full')
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
         Trajectory containing the loaded transitions
     """
-    filename = f"{maze_name}_{agent.value}_trajectories_{run_id}.npy"
+    filename = (
+        f"{maze_name}_{_obs_tag(observable)}_{agent.value}_trajectories_{run_id}.npy"
+    )
     filepath = TRAJECTORIES_DIR / filename
     arr = np.load(filepath, allow_pickle=True)
 
@@ -63,7 +79,12 @@ def load_trajectories(agent: Agent, run_id: int, maze_name: str) -> Trajectory:
 
 
 def save_logprobs(
-    data: np.ndarray, source: Agent, evaluator: Agent, run_id: int, maze_name: str
+    data: np.ndarray,
+    source: Agent,
+    evaluator: Agent,
+    run_id: int,
+    maze_name: str,
+    observable: bool = True,
 ) -> Path:
     """Save log probability data to organized directory.
 
@@ -73,20 +94,27 @@ def save_logprobs(
         evaluator: Agent used to evaluate the trajectory
         run_id: Run identifier
         maze_name: Maze name (e.g., 'simple', 'full')
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
         Path to saved file
     """
     ensure_directories()
     label = f"source_{source.value}_eval_{evaluator.value}"
-    filename = f"{maze_name}_{label}_log_likelihoods_{run_id}.npy"
+    filename = (
+        f"{maze_name}_{_obs_tag(observable)}_{label}_log_likelihoods_{run_id}.npy"
+    )
     filepath = LOGPROBS_DIR / filename
     np.save(filepath, data)
     return filepath
 
 
 def load_logprobs(
-    source: Agent, evaluator: Agent, run_id: int, maze_name: str
+    source: Agent,
+    evaluator: Agent,
+    run_id: int,
+    maze_name: str,
+    observable: bool = True,
 ) -> np.ndarray:
     """Load log probability data from organized directory.
 
@@ -95,24 +123,30 @@ def load_logprobs(
         evaluator: Agent used to evaluate the trajectory
         run_id: Run identifier
         maze_name: Maze name (e.g., 'simple', 'full')
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
         Array of cumulative log-likelihoods
     """
     label = f"source_{source.value}_eval_{evaluator.value}"
-    filename = f"{maze_name}_{label}_log_likelihoods_{run_id}.npy"
+    filename = (
+        f"{maze_name}_{_obs_tag(observable)}_{label}_log_likelihoods_{run_id}.npy"
+    )
     filepath = LOGPROBS_DIR / filename
     return np.load(filepath, allow_pickle=True)
 
 
 def list_trajectory_files(
-    agent: Optional[Agent] = None, maze_name: Optional[str] = None
+    agent: Optional[Agent] = None,
+    maze_name: Optional[str] = None,
+    observable: Optional[bool] = None,
 ) -> list:
     """List all trajectory files in the data directory.
 
     Args:
         agent: Filter by agent (optional)
         maze_name: Filter by maze name (optional)
+        observable: Filter by observability — True for FO, False for PO, None for both
 
     Returns:
         List of file paths
@@ -121,19 +155,23 @@ def list_trajectory_files(
         return []
 
     maze_part = maze_name or "*"
+    obs_part = _obs_tag(observable) if observable is not None else "*"
     agent_part = agent.value if agent is not None else "*"
-    pattern = f"{maze_part}_{agent_part}_trajectories_*.npy"
+    pattern = f"{maze_part}_{obs_part}_{agent_part}_trajectories_*.npy"
     return sorted(TRAJECTORIES_DIR.glob(pattern))
 
 
 def list_logprob_files(
-    label: Optional[str] = None, maze_name: Optional[str] = None
+    label: Optional[str] = None,
+    maze_name: Optional[str] = None,
+    observable: Optional[bool] = None,
 ) -> list:
     """List all log probability files in the data directory.
 
     Args:
         label: Filter by label (optional)
         maze_name: Filter by maze name (optional)
+        observable: Filter by observability — True for FO, False for PO, None for both
 
     Returns:
         List of file paths
@@ -142,19 +180,21 @@ def list_logprob_files(
         return []
 
     maze_part = maze_name or "*"
+    obs_part = _obs_tag(observable) if observable is not None else "*"
     label_part = label or "*"
-    pattern = f"{maze_part}_{label_part}_log_likelihoods_*.npy"
+    pattern = f"{maze_part}_{obs_part}_{label_part}_log_likelihoods_*.npy"
     return sorted(LOGPROBS_DIR.glob(pattern))
 
 
-def get_run_count(agent: Agent, maze_name: str) -> int:
+def get_run_count(agent: Agent, maze_name: str, observable: bool = True) -> int:
     """Get the number of trajectory files for an agent and maze.
 
     Args:
         agent: Agent whose trajectory files to count
         maze_name: Maze name
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
         Number of trajectory files
     """
-    return len(list_trajectory_files(agent, maze_name))
+    return len(list_trajectory_files(agent, maze_name, observable))
