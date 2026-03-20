@@ -43,6 +43,11 @@ class QLearning(BaseAgent):
         ]
         self.returns: List[float] = []
 
+    def simulate(self, trajectory) -> list[float]:
+        raise NotImplementedError(
+            "QLearning does not support simulation; use QLearningTime."
+        )
+
     def choose_action(self, state: int) -> int:
         """Choose action using epsilon-greedy exploration."""
         if np.random.rand() < self.epsilon:
@@ -106,7 +111,9 @@ class QLearningTime(BaseAgent):
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma
-        self.q_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
+        self.q_table = np.zeros(
+            (maze.observation_space.n, maze.horizon, maze.num_actions)
+        )
 
     def choose_action(self, state: int, time_spent: int) -> int:
         """Choose action using Boltzmann exploration."""
@@ -127,7 +134,7 @@ class QLearningTime(BaseAgent):
         td_error = td_target - self.q_table[t.state, t.time_spent, t.action]
         self.q_table[t.state, t.time_spent, t.action] += self.alpha * td_error
 
-    def simulate_q_learning(self, trajectory: Trajectory) -> list[float]:
+    def simulate(self, trajectory: Trajectory) -> list[float]:
         """Evaluate log-likelihood of transitions under Q-learning updates.
 
         Args:

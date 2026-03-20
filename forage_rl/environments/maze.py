@@ -285,6 +285,18 @@ class MazePOMDP(Maze):
         info["true_state"] = self.state
         return self.observe(), reward, terminated, truncated, info
 
+    def step_transition(self, action: int) -> tuple[Transition, bool]:
+        """Execute action and return (Transition, done) using observation groups."""
+        obs, reward, terminated, truncated, info = self.step(action)
+        transition = Transition(
+            state=self.observe(info["prev_state"]),
+            action=info["action"],
+            reward=reward,
+            next_state=obs,
+        )
+        done = terminated or truncated
+        return transition, done
+
 
 def _simple_spec_from_decays(
     decays: list[float], horizon: int = DefaultParams.HORIZON
@@ -349,3 +361,13 @@ class SimpleMaze(Maze):
             rng=rng,
             horizon=horizon,
         )
+
+
+MazeMDP = Maze | MazePOMDP
+
+
+def maze_from_builtin_maze_spec(
+    name: str = "simple", observable: bool = True
+) -> MazeMDP:
+    maze_cls = Maze if observable else MazePOMDP
+    return maze_cls(load_builtin_maze_spec(name))

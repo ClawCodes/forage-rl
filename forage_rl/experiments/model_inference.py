@@ -1,4 +1,4 @@
-"""Run model inference experiment comparing MBRL vs Q-learning."""
+"""Run model inference experiment comparing registered agents."""
 
 import argparse
 from typing import Optional
@@ -6,113 +6,98 @@ from typing import Optional
 import numpy as np
 
 from forage_rl import Trajectory
-from forage_rl.environments import SimpleMaze
-from forage_rl.agents import MBRL, QLearningTime
+from forage_rl.agents.registry import Agent
+from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
+from forage_rl.agents import get_agent, registered_agents
 from forage_rl.utils import load_trajectories, save_logprobs, get_run_count
-from forage_rl.config import DefaultParams, ensure_directories
+from forage_rl.config import ensure_directories
 
 
 def evaluate_trajectory(
     trajectory: Trajectory,
-    gamma: float = DefaultParams.GAMMA,
-    alpha: float = DefaultParams.ALPHA,
-) -> dict:
-    """Evaluate a trajectory under both MBRL and Q-learning models.
+    maze_name: str = "simple",
+    agents: list[Agent] | None = None,
+    observable: bool = True,
+) -> dict[Agent, np.ndarray]:
+    """Evaluate a trajectory under each specified agent model.
 
     Args:
         trajectory: Instance of Trajectory
-        gamma: Discount factor for MBRL
-        alpha: Learning rate for Q-learning
+        maze_name: Built-in maze spec name used to initialise evaluator agents
+        agents: Agent names to evaluate with; defaults to all registered agents
+        observable: True for fully observable (FO), False for partially observable (PO)
 
     Returns:
-        Dictionary with log-likelihoods under each model
+        Dictionary mapping agent name to array of per-transition log-likelihoods
     """
-    maze = SimpleMaze()
+    if agents is None:
+        agents = registered_agents()
 
-    # Evaluate under MBRL
-    mbrl = MBRL(maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=gamma)
-    mb_log_likelihoods = mbrl.simulate_model_based_rl(trajectory)
-
-    # Evaluate under Q-learning
-    maze = SimpleMaze()  # Fresh maze
-    qlearning = QLearningTime(
-        maze, num_episodes=DefaultParams.NUM_EPISODES, alpha=alpha
-    )
-    ql_log_likelihoods = qlearning.simulate_q_learning(trajectory)
-
-    return {
-        "mbrl": np.array(mb_log_likelihoods),
-        "qlearning": np.array(ql_log_likelihoods),
-    }
+    maze_spec = load_builtin_maze_spec(maze_name)
+    maze_cls = Maze if observable else MazePOMDP
+    results = {}
+    for agent_name in agents:
+        agent = get_agent(agent_name, maze_cls(maze_spec))
+        results[agent_name] = np.array(agent.simulate(trajectory))
+    return results
 
 
-def run_inference_experiment(num_datasets: Optional[int] = None, verbose: bool = True):
+def run_inference_experiment(
+    source_agents: list[Agent] | None = None,
+    compare_to: list[Agent] | None = None,
+    maze_name: str = "simple",
+    num_datasets: Optional[int] = None,
+    observable: bool = True,
+    verbose: bool = True,
+):
     """Run the full model inference experiment.
 
-    For each trajectory file from both algorithms, evaluate log-likelihood
-    under both MBRL and Q-learning models.
+    For each trajectory file from each source agent, evaluate log-likelihood
+    under each evaluator agent.
 
     Args:
-        num_datasets: Number of trajectory files to process
+        source_agents: Agents whose saved trajectories to evaluate; defaults to all registered
+        compare_to: Agents to evaluate trajectories with; defaults to all registered
+        maze_name: Built-in maze spec name used for both loading trajectories and evaluating
+        num_datasets: Number of trajectory files to process per source agent
+        observable: True for fully observable (FO), False for partially observable (PO)
         verbose: Whether to print progress
     """
+    if source_agents is None:
+        source_agents = registered_agents()
+    if compare_to is None:
+        compare_to = registered_agents()
+
     ensure_directories()
 
-    num_datasets = num_datasets or min(
-        get_run_count("mbrl"),
-        get_run_count("q_learning"),
-        DefaultParams.NUM_TRAINING_RUNS,
-    )
-
-    if num_datasets == 0:
-        print("No trajectory files found. Run generate_trajectories.py first.")
-        return
-
-    # Process MBRL-generated trajectories
-    print("\nEvaluating MBRL-generated trajectories...")
-    for i in range(num_datasets):
-        transitions = load_trajectories("mbrl", i)
-
-        if verbose:
-            print(f"\nDataset {i + 1}/{num_datasets} (MBRL source)")
-
-        results = evaluate_trajectory(transitions)
-
-        mb_cumsum = np.cumsum(results["mbrl"])
-        ql_cumsum = np.cumsum(results["qlearning"])
-
-        if verbose:
-            print(f"  MBRL total log-likelihood: {np.sum(results['mbrl']):.2f}")
+    for source in source_agents:
+        n = min(
+            num_datasets or get_run_count(source, maze_name, observable),
+            get_run_count(source, maze_name, observable),
+        )
+        if n == 0:
             print(
-                f"  Q-learning total log-likelihood: {np.sum(results['qlearning']):.2f}"
+                f"No trajectory files for {source.value}. Run generate_trajectories.py first."
             )
+            continue
 
-        # Save cumulative log-likelihoods
-        save_logprobs(mb_cumsum, "mbrl_true", i)
-        save_logprobs(ql_cumsum, "ql_false", i)
+        print(f"\nEvaluating {source.value}-generated trajectories...")
+        for i in range(n):
+            trajectory = load_trajectories(source, i, maze_name, observable)
 
-    # Process Q-learning-generated trajectories
-    print("\nEvaluating Q-learning-generated trajectories...")
-    for i in range(num_datasets):
-        transitions = load_trajectories("q_learning", i)
+            if verbose:
+                print(f"\n  Dataset {i + 1}/{n} (source: {source.value})")
 
-        if verbose:
-            print(f"\nDataset {i + 1}/{num_datasets} (Q-learning source)")
+            results = evaluate_trajectory(trajectory, maze_name, compare_to, observable)
 
-        results = evaluate_trajectory(transitions)
-
-        mb_cumsum = np.cumsum(results["mbrl"])
-        ql_cumsum = np.cumsum(results["qlearning"])
-
-        if verbose:
-            print(f"  MBRL total log-likelihood: {np.sum(results['mbrl']):.2f}")
-            print(
-                f"  Q-learning total log-likelihood: {np.sum(results['qlearning']):.2f}"
-            )
-
-        # Save cumulative log-likelihoods
-        save_logprobs(mb_cumsum, "mbrl_false", i)
-        save_logprobs(ql_cumsum, "ql_true", i)
+            for evaluator, log_liks in results.items():
+                save_logprobs(
+                    np.cumsum(log_liks), source, evaluator, i, maze_name, observable
+                )
+                if verbose:
+                    print(
+                        f"  [{evaluator}] total log-likelihood: {np.sum(log_liks):.2f}"
+                    )
 
     print("\nInference experiment complete!")
 
@@ -120,17 +105,48 @@ def run_inference_experiment(num_datasets: Optional[int] = None, verbose: bool =
 def main():
     parser = argparse.ArgumentParser(description="Run model inference experiment")
     parser.add_argument(
+        "--source-agents",
+        nargs="+",
+        default=["all"],
+        help="Source agent name(s) whose trajectories to evaluate, or 'all'",
+    )
+    parser.add_argument(
+        "--compare-to",
+        nargs="+",
+        default=["all"],
+        help="Evaluator agent name(s) to compare against, or 'all'",
+    )
+    parser.add_argument(
         "--num-datasets",
         type=int,
         default=None,
-        help="Number of datasets to process (default: all available)",
+        help="Number of datasets to process per source agent (default: all available)",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
+    parser.add_argument(
+        "--maze",
+        default="simple",
+        help="Built-in maze spec name (e.g. simple, full)",
+    )
+    parser.add_argument(
+        "--pomdp",
+        action="store_true",
+        help="Use partially observable trajectories (PO); default is fully observable (FO)",
+    )
 
     args = parser.parse_args()
 
+    source_agents = (
+        registered_agents() if args.source_agents == ["all"] else args.source_agents
+    )
+    compare_to = registered_agents() if args.compare_to == ["all"] else args.compare_to
+
     run_inference_experiment(
+        source_agents=source_agents,
+        compare_to=compare_to,
+        maze_name=args.maze,
         num_datasets=args.num_datasets,
+        observable=not args.pomdp,
         verbose=not args.quiet,
     )
 

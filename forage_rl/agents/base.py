@@ -1,12 +1,15 @@
 """Base agent class with shared functionality."""
 
+from abc import ABC, abstractmethod
+
 import numpy as np
 
+from forage_rl import Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
 
 
-class BaseAgent:
+class BaseAgent(ABC):
     """Base class for reinforcement learning agents.
 
     Provides shared functionality for Boltzmann action selection and Q-value plotting.
@@ -36,6 +39,16 @@ class BaseAgent:
             return np.argmax(self.q_table, axis=2)  # time-bound q-table
         else:
             return np.argmax(self.q_table, axis=1)  # non-time-bound q-table
+
+    @abstractmethod
+    def simulate(self, trajectory) -> list[float]:
+        """Evaluate log-likelihood of each transition under this agent's learning rule."""
+        ...
+
+    @abstractmethod
+    def train(self, verbose: bool = True) -> Trajectory:
+        """Train the agent on the provided Maze"""
+        ...
 
     def print_policy(self, max_time_to_display: int = 6):
         """Print the optimal policy for each state."""

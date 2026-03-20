@@ -29,14 +29,15 @@ class MBRL(BaseAgent):
         self.num_episodes = num_episodes
         self.gamma = gamma
         self.num_planning_steps = num_planning_steps
-        self.q_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
-        self.r_table = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
-        self.count = np.zeros((maze.num_states, maze.horizon, maze.num_actions))
+        n = maze.observation_space.n  # type: ignore
+        self.q_table = np.zeros((n, maze.horizon, maze.num_actions))
+        self.r_table = np.zeros((n, maze.horizon, maze.num_actions))
+        self.count = np.zeros((n, maze.horizon, maze.num_actions))
 
     def q_value_iteration(self):
         """Perform Q-value iteration using learned rewards and known transitions."""
         for _ in range(self.num_planning_steps):
-            for s in range(self.maze.num_states):
+            for s in range(self.maze.observation_space.n):  # type: ignore
                 for t in range(self.maze.horizon):
                     for a in range(self.maze.num_actions):
                         r_sa = self.r_table[s, t, a]
@@ -57,7 +58,7 @@ class MBRL(BaseAgent):
                             self.q_table[next_state, next_time]
                         )
 
-    def simulate_model_based_rl(self, trajectory: Trajectory) -> list[float]:
+    def simulate(self, trajectory: Trajectory) -> list[float]:
         """
         Evaluate log-likelihood of transitions under model-based RL.
 
