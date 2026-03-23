@@ -5,7 +5,7 @@ from .base import BaseAgent
 from .q_table import QTable
 
 from forage_rl.config import DefaultParams
-from forage_rl import TimedTransition, Trajectory
+from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.environments import Maze
 from forage_rl.environments.maze import MazePOMDP
 
@@ -120,7 +120,7 @@ class MBRL(BaseAgent):
                     transition, time_spent
                 )
 
-                transitions.append(timed_transition)
+                episode_transitions.append(timed_transition)
 
                 # Update reward estimate
                 self.count.update(state, action, 1.0, time_spent)
@@ -141,9 +141,10 @@ class MBRL(BaseAgent):
 
                 # Perform planning after each transition
                 self.q_value_iteration()
+            trajectories.append(Trajectory(transitions=episode_transitions))
 
         if verbose:
             print("Training completed.")
             self.print_policy()
 
-        return Trajectory(transitions=transitions)
+        return RunDataset(trajectories=trajectories)
