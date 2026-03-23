@@ -28,8 +28,9 @@ class QLearning(BaseAgent):
         epsilon: float = DefaultParams.EPSILON,
         min_epsilon: float = 0.01,
         decay_rate: float = 0.995,
+        seed: int | None = None,
     ):
-        super().__init__(maze)
+        super().__init__(maze, seed=seed)
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma
@@ -50,8 +51,8 @@ class QLearning(BaseAgent):
 
     def choose_action(self, state: int) -> int:
         """Choose action using epsilon-greedy exploration."""
-        if np.random.rand() < self.epsilon:
-            return int(np.random.choice(self.maze.num_actions))
+        if self.rng.random() < self.epsilon:
+            return int(self.rng.integers(self.maze.num_actions))
         return int(np.argmax(self.q_table[state]))
 
     def update_q_value(self, t: Transition):
@@ -106,8 +107,9 @@ class QLearningTime(BaseAgent):
         alpha: float = DefaultParams.ALPHA,
         gamma: float = DefaultParams.GAMMA,
         beta: float = DefaultParams.BETA,
+        seed: int | None = None,
     ):
-        super().__init__(maze, beta)
+        super().__init__(maze, beta, seed=seed)
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma
