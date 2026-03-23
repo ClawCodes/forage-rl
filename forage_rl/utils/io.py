@@ -1,14 +1,20 @@
 """File I/O utilities for saving and loading experiment data."""
 
+import json
 import re
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
-from forage_rl import Transition, TimedTransition, Trajectory
-from forage_rl.agents.registry import Agent
-from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
+from forage_rl import RunDataset, TimedTransition, Trajectory, Transition
+from forage_rl.agents.registry import Agent, EvaluatorSpec
+from forage_rl.config import (
+    CHECKPOINTS_DIR,
+    LOGPROBS_DIR,
+    TRAJECTORIES_DIR,
+    ensure_directories,
+)
 
 
 def _obs_tag(observable: bool) -> str:
@@ -16,99 +22,137 @@ def _obs_tag(observable: bool) -> str:
 
 
 def _extract_run_id(filepath: Path) -> int:
-    match = re.search(r"_(\d+)\.npy$", filepath.name)
+    match = re.search(r"_(\d+)\.npz$", filepath.name)
     if match is None:
         raise ValueError(f"Could not parse run id from filename: {filepath.name}")
     return int(match.group(1))
 
 
-def save_trajectories(
-    trajectory: Trajectory,
+def _run_dataset_filename(
+    agent: Agent,
+    run_id: int,
+    maze_name: str,
+    observable: bool,
+) -> str:
+    return (
+        f"{maze_name}_{_obs_tag(observable)}_{agent.value}_run_dataset_{run_id}.npz"
+    )
+
+
+def _run_dataset_path(
+    agent: Agent,
+    run_id: int,
+    maze_name: str,
+    observable: bool,
+) -> Path:
+    return TRAJECTORIES_DIR / _run_dataset_filename(agent, run_id, maze_name, observable)
+
+
+def _run_dataset_metadata_path(filepath: Path) -> Path:
+    return filepath.with_suffix(".json")
+
+
+def _transition_name(transition_cls: type[Transition]) -> str:
+    return transition_cls.__name__
+
+
+def _transition_class(name: str) -> type[Transition]:
+    if name == Transition.__name__:
+        return Transition
+    if name == TimedTransition.__name__:
+        return TimedTransition
+    raise ValueError(f"Unsupported transition type {name!r}.")
+
+
+def _checkpoint_label(agent: Agent, maze_name: str, observable: bool) -> str:
+    return f"{maze_name}_{_obs_tag(observable)}_{agent.value}_final"
+
+
+def checkpoint_path(agent: Agent, maze_name: str, observable: bool = True) -> Path:
+    """Return the canonical checkpoint path for a pretrained neural agent."""
+    return CHECKPOINTS_DIR / f"{_checkpoint_label(agent, maze_name, observable)}.pt"
+
+
+def checkpoint_metadata_path(
+    agent: Agent,
+    maze_name: str,
+    observable: bool = True,
+) -> Path:
+    """Return the canonical checkpoint metadata path."""
+    return CHECKPOINTS_DIR / f"{_checkpoint_label(agent, maze_name, observable)}.json"
+
+
+def _evaluator_label(evaluator: Agent | EvaluatorSpec) -> str:
+    if isinstance(evaluator, Agent):
+        return f"{evaluator.value}_fresh"
+    return evaluator.label
+
+
+def save_run_dataset(
+    run_dataset: RunDataset,
     agent: Agent,
     run_id: int,
     maze_name: str,
     observable: bool = True,
 ) -> Path:
-    """Save trajectory data to organized directory.
-
-    Args:
-        trajectory: Instance of Trajectory class.
-        agent: Agent that produced the trajectory
-        run_id: Run identifier
-        maze_name: Maze name (e.g., 'simple', 'full')
-        observable: True for fully observable (FO), False for partially observable (PO)
-
-    Returns:
-        Path to saved file
-    """
+    """Save one run dataset as a `.npz` plus auxiliary JSON metadata."""
     ensure_directories()
-    filename = (
-        f"{maze_name}_{_obs_tag(observable)}_{agent.value}_trajectories_{run_id}.npy"
-    )
-    filepath = TRAJECTORIES_DIR / filename
-    np.save(filepath, trajectory.to_numpy())
+    filepath = _run_dataset_path(agent, run_id, maze_name, observable)
+    payload: dict[str, object] = {
+        "__transition_type__": np.array(
+            _transition_name(run_dataset.transition_cls()),
+            dtype=np.str_,
+        ),
+    }
+    for episode_index, trajectory in enumerate(run_dataset.trajectories):
+        payload[f"episode_{episode_index:05d}"] = trajectory.to_numpy()
+    np.savez(filepath, **payload)
+
+    metadata_path = _run_dataset_metadata_path(filepath)
+    metadata = {
+        "container_type": "run_dataset",
+        "agent": agent.value,
+        "maze_name": maze_name,
+        "observable": observable,
+        "num_episodes": run_dataset.num_episodes(),
+        "num_transitions": run_dataset.num_transitions(),
+    }
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return filepath
 
 
-def load_trajectories(
-    agent: Agent, run_id: int, maze_name: str, observable: bool = True
-) -> Trajectory:
-    """Load trajectory data from organized directory.
-
-    Automatically detects the transition type based on array shape:
-    - 4 columns → Transition
-    - 5 columns → TimedTransition
-
-    Args:
-        agent: Agent name that produced the trajectory (e.g., 'mbrl', 'q_learning')
-        run_id: Run identifier
-        maze_name: Maze name (e.g., 'simple', 'full')
-        observable: True for fully observable (FO), False for partially observable (PO)
-
-    Returns:
-        Trajectory containing the loaded transitions
-    """
-    filename = (
-        f"{maze_name}_{_obs_tag(observable)}_{agent.value}_trajectories_{run_id}.npy"
-    )
-    filepath = TRAJECTORIES_DIR / filename
-    arr = np.load(filepath, allow_pickle=True)
-
-    # Auto-detect transition type from column count
-    num_cols = arr.shape[1] if arr.ndim > 1 else len(arr[0])
-    if num_cols == len(Transition.model_fields):
-        transition_cls = Transition
-    elif num_cols == len(TimedTransition.model_fields):
-        transition_cls = TimedTransition
-    else:
-        raise ValueError(f"Unknown transition format with {num_cols} columns")
-
-    return Trajectory.from_numpy(arr, transition_cls)
+def load_run_dataset(
+    agent: Agent,
+    run_id: int,
+    maze_name: str,
+    observable: bool = True,
+) -> RunDataset:
+    """Load one run dataset from the current `.npz` format."""
+    filepath = _run_dataset_path(agent, run_id, maze_name, observable)
+    with np.load(filepath, allow_pickle=True) as payload:
+        transition_name = str(payload["__transition_type__"].item())
+        transition_cls = _transition_class(transition_name)
+        episode_keys = sorted(
+            key for key in payload.files if key.startswith("episode_")
+        )
+        trajectories = [
+            Trajectory.from_numpy(payload[episode_key], transition_cls)
+            for episode_key in episode_keys
+        ]
+    return RunDataset(trajectories=trajectories)
 
 
 def save_logprobs(
     data: np.ndarray,
     source: Agent,
-    evaluator: Agent,
+    evaluator: Agent | EvaluatorSpec,
     run_id: int,
     maze_name: str,
     observable: bool = True,
 ) -> Path:
-    """Save log probability data to organized directory.
-
-    Args:
-        data: Array of cumulative log-likelihoods
-        source: Agent that generated the trajectory
-        evaluator: Agent used to evaluate the trajectory
-        run_id: Run identifier
-        maze_name: Maze name (e.g., 'simple', 'full')
-        observable: True for fully observable (FO), False for partially observable (PO)
-
-    Returns:
-        Path to saved file
-    """
+    """Save log probability data to organized directory."""
     ensure_directories()
-    label = f"source_{source.value}_eval_{evaluator.value}"
+    label = f"source_{source.value}_eval_{_evaluator_label(evaluator)}"
     filename = (
         f"{maze_name}_{_obs_tag(observable)}_{label}_log_likelihoods_{run_id}.npy"
     )
@@ -119,24 +163,22 @@ def save_logprobs(
 
 def load_logprobs(
     source: Agent,
-    evaluator: Agent,
+    evaluator: Agent | EvaluatorSpec,
     run_id: int,
     maze_name: str,
     observable: bool = True,
+    evaluator_mode: str = "fresh",
 ) -> np.ndarray:
-    """Load log probability data from organized directory.
+    """Load log probability data from organized directory."""
+    if isinstance(evaluator, Agent):
+        label = f"source_{source.value}_eval_{evaluator.value}_{evaluator_mode}"
+        filename = (
+            f"{maze_name}_{_obs_tag(observable)}_{label}_log_likelihoods_{run_id}.npy"
+        )
+        filepath = LOGPROBS_DIR / filename
+        return np.load(filepath, allow_pickle=True)
 
-    Args:
-        source: Agent that generated the trajectory
-        evaluator: Agent used to evaluate the trajectory
-        run_id: Run identifier
-        maze_name: Maze name (e.g., 'simple', 'full')
-        observable: True for fully observable (FO), False for partially observable (PO)
-
-    Returns:
-        Array of cumulative log-likelihoods
-    """
-    label = f"source_{source.value}_eval_{evaluator.value}"
+    label = f"source_{source.value}_eval_{evaluator.label}"
     filename = (
         f"{maze_name}_{_obs_tag(observable)}_{label}_log_likelihoods_{run_id}.npy"
     )
@@ -144,32 +186,23 @@ def load_logprobs(
     return np.load(filepath, allow_pickle=True)
 
 
-def list_trajectory_files(
+def list_run_dataset_files(
     agent: Optional[Agent] = None,
     maze_name: Optional[str] = None,
     observable: Optional[bool] = None,
-) -> list:
-    """List all trajectory files in the data directory.
-
-    Args:
-        agent: Filter by agent (optional)
-        maze_name: Filter by maze name (optional)
-        observable: Filter by observability — True for FO, False for PO, None for both
-
-    Returns:
-        List of file paths
-    """
+) -> list[Path]:
+    """List all saved run-dataset files in the data directory."""
     if not TRAJECTORIES_DIR.exists():
         return []
 
     maze_part = maze_name or "*"
     obs_part = _obs_tag(observable) if observable is not None else "*"
     agent_part = agent.value if agent is not None else "*"
-    pattern = f"{maze_part}_{obs_part}_{agent_part}_trajectories_*.npy"
+    pattern = f"{maze_part}_{obs_part}_{agent_part}_run_dataset_*.npz"
     return sorted(TRAJECTORIES_DIR.glob(pattern))
 
 
-def list_trajectory_run_ids(
+def list_run_dataset_run_ids(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
@@ -177,7 +210,7 @@ def list_trajectory_run_ids(
     """Return sorted saved run ids for an agent/maze combination."""
     return sorted(
         _extract_run_id(filepath)
-        for filepath in list_trajectory_files(agent, maze_name, observable)
+        for filepath in list_run_dataset_files(agent, maze_name, observable)
     )
 
 
@@ -185,17 +218,8 @@ def list_logprob_files(
     label: Optional[str] = None,
     maze_name: Optional[str] = None,
     observable: Optional[bool] = None,
-) -> list:
-    """List all log probability files in the data directory.
-
-    Args:
-        label: Filter by label (optional)
-        maze_name: Filter by maze name (optional)
-        observable: Filter by observability — True for FO, False for PO, None for both
-
-    Returns:
-        List of file paths
-    """
+) -> list[Path]:
+    """List all log probability files in the data directory."""
     if not LOGPROBS_DIR.exists():
         return []
 
@@ -207,14 +231,5 @@ def list_logprob_files(
 
 
 def get_run_count(agent: Agent, maze_name: str, observable: bool = True) -> int:
-    """Get the number of trajectory files for an agent and maze.
-
-    Args:
-        agent: Agent whose trajectory files to count
-        maze_name: Maze name
-        observable: True for fully observable (FO), False for partially observable (PO)
-
-    Returns:
-        Number of trajectory files
-    """
-    return len(list_trajectory_run_ids(agent, maze_name, observable))
+    """Get the number of saved run datasets for an agent and maze."""
+    return len(list_run_dataset_run_ids(agent, maze_name, observable))
