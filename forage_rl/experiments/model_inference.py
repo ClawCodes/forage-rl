@@ -16,6 +16,7 @@ from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
 from forage_rl.experiments.parallel import (
     is_neural_agent,
     resolve_execution_strategy,
+    split_torch_items,
     uses_torch_agents,
 )
 from forage_rl.utils import (
@@ -253,49 +254,25 @@ def _print_timing_summary(task_count: int, worker_count: int, elapsed: float) ->
     )
 
 
-def run_inference_experiment(
-    source_agents: list[Agent] | None = None,
-    compare_to: list[EvaluatorInput] | None = None,
-    maze_name: str = "simple",
-    num_datasets: Optional[int] = None,
-    observable: bool = True,
-    verbose: bool = True,
-    workers: int | None = None,
-    device: str = "auto",
-    base_seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+def _execute_inference_tasks(
+    tasks: list[InferenceTask],
+    *,
+    source_agents: list[Agent],
+    workers: int | None,
+    device: str,
+    verbose: bool,
+    uses_torch: bool,
+    batch_label: str,
 ) -> None:
-    """Run the full model inference experiment."""
-    if source_agents is None:
-        source_agents = registered_agents()
-    if compare_to is None:
-        compare_to = registered_agents()
-
-    ensure_directories()
-
-    tasks, missing_sources = _build_inference_tasks(
-        source_agents=source_agents,
-        compare_to=compare_to,
-        maze_name=maze_name,
-        num_datasets=num_datasets,
-        observable=observable,
-        device=device,
-        base_seed=base_seed,
-    )
-
-    for source in missing_sources:
-        print(
-            f"No trajectory files for {source.value}. Run generate_trajectories.py first."
-        )
-
+    """Execute one homogeneous inference batch."""
     task_count = len(tasks)
     if task_count == 0:
-        print("\nInference experiment complete!")
         return
 
     strategy = resolve_execution_strategy(
         task_count,
         workers,
-        uses_torch=uses_torch_agents(compare_to),
+        uses_torch=uses_torch,
         device=device,
     )
     worker_count = strategy.worker_count
@@ -303,7 +280,8 @@ def run_inference_experiment(
     if verbose:
         print(
             f"Evaluating {task_count} trajectory dataset(s) across "
-            f"{len(source_agents)} source agent(s) with {worker_count} worker(s)..."
+            f"{len(source_agents)} source agent(s) with {worker_count} worker(s) "
+            f"for {batch_label} evaluators..."
         )
         if strategy.worker_note is not None:
             print(strategy.worker_note)
@@ -329,6 +307,89 @@ def run_inference_experiment(
     elapsed = time.perf_counter() - start
     if verbose:
         _print_timing_summary(task_count, worker_count, elapsed)
+
+
+def run_inference_experiment(
+    source_agents: list[Agent] | None = None,
+    compare_to: list[EvaluatorInput] | None = None,
+    maze_name: str = "simple",
+    num_datasets: Optional[int] = None,
+    observable: bool = True,
+    verbose: bool = True,
+    workers: int | None = None,
+    device: str = "auto",
+    base_seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+) -> None:
+    """Run the full model inference experiment."""
+    if source_agents is None:
+        source_agents = registered_agents()
+    if compare_to is None:
+        compare_to = registered_agents()
+
+    ensure_directories()
+
+    normalized_compare_to = [_normalize_evaluator(item) for item in compare_to]
+    cpu_evaluators, neural_evaluators = split_torch_items(normalized_compare_to)
+    if uses_torch_agents(normalized_compare_to):
+        evaluator_batches: list[tuple[list[EvaluatorSpec], bool, str]] = [
+            (cpu_evaluators, False, "CPU-only"),
+            (neural_evaluators, True, "neural"),
+        ]
+    else:
+        evaluator_batches = [(cpu_evaluators, False, "CPU-only")]
+
+    total_task_count = 0
+    reported_missing_sources: set[Agent] = set()
+    for evaluators, _, _ in evaluator_batches:
+        if not evaluators:
+            continue
+        _, missing_sources = _build_inference_tasks(
+            source_agents=source_agents,
+            compare_to=evaluators,
+            maze_name=maze_name,
+            num_datasets=num_datasets,
+            observable=observable,
+            device=device,
+            base_seed=base_seed,
+        )
+        for source in missing_sources:
+            if source in reported_missing_sources:
+                continue
+            reported_missing_sources.add(source)
+            print(
+                f"No trajectory files for {source.value}. Run generate_trajectories.py first."
+            )
+        total_task_count += sum(
+            len(_select_run_ids(source, maze_name, observable, num_datasets))
+            for source in source_agents
+            if source not in reported_missing_sources
+        )
+
+    if total_task_count == 0:
+        print("\nInference experiment complete!")
+        return
+
+    for evaluators, batch_uses_torch, batch_label in evaluator_batches:
+        if not evaluators:
+            continue
+        tasks, _ = _build_inference_tasks(
+            source_agents=source_agents,
+            compare_to=evaluators,
+            maze_name=maze_name,
+            num_datasets=num_datasets,
+            observable=observable,
+            device=device,
+            base_seed=base_seed,
+        )
+        _execute_inference_tasks(
+            tasks,
+            source_agents=source_agents,
+            workers=workers,
+            device=device,
+            verbose=verbose,
+            uses_torch=batch_uses_torch,
+            batch_label=batch_label,
+        )
 
     print("\nInference experiment complete!")
 

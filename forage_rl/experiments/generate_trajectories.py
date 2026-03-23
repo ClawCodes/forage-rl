@@ -12,6 +12,7 @@ from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
 from forage_rl.experiments.parallel import (
     is_neural_agent,
     resolve_execution_strategy,
+    split_torch_items,
     uses_torch_agents,
 )
 from forage_rl.utils.torch_support import configure_torch_worker
@@ -117,48 +118,33 @@ def _print_timing_summary(task_count: int, worker_count: int, elapsed: float) ->
     )
 
 
-def run_generation_experiment(
-    agent_types: list[Agent] | None = None,
-    maze_name: str = "simple",
-    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
-    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
-    observable: bool = True,
-    verbose: bool = True,
-    workers: int | None = None,
-    base_seed: int | None = None,
-    device: str = "auto",
+def _execute_generation_tasks(
+    tasks: list[GenerationTask],
+    *,
+    agent_types: list[Agent],
+    workers: int | None,
+    device: str,
+    verbose: bool,
+    uses_torch: bool,
+    batch_label: str,
 ) -> None:
-    """Generate trajectories for one or more registered agents."""
-    ensure_directories()
-
-    agent_types = registered_agents() if agent_types is None else agent_types
-    tasks = _build_generation_tasks(
-        agent_types=agent_types,
-        maze_name=maze_name,
-        num_runs=num_runs,
-        num_episodes=num_episodes,
-        observable=observable,
-        base_seed=base_seed,
-        device=device,
-    )
-
+    """Execute one homogeneous generation batch."""
     task_count = len(tasks)
+    if task_count == 0:
+        return
+
     strategy = resolve_execution_strategy(
         task_count,
         workers,
-        uses_torch=uses_torch_agents(agent_types),
+        uses_torch=uses_torch,
         device=device,
     )
     worker_count = strategy.worker_count
 
-    if task_count == 0:
-        print("\nTrajectory generation complete!")
-        return
-
     if verbose:
         print(
-            f"Generating {task_count} trajectories across {len(agent_types)} agent(s) "
-            f"with {worker_count} worker(s)..."
+            f"Generating {task_count} trajectories across {len(agent_types)} "
+            f"{batch_label} agent(s) with {worker_count} worker(s)..."
         )
         if strategy.worker_note is not None:
             print(strategy.worker_note)
@@ -184,6 +170,58 @@ def run_generation_experiment(
     elapsed = time.perf_counter() - start
     if verbose:
         _print_timing_summary(task_count, worker_count, elapsed)
+
+
+def run_generation_experiment(
+    agent_types: list[Agent] | None = None,
+    maze_name: str = "simple",
+    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
+    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
+    observable: bool = True,
+    verbose: bool = True,
+    workers: int | None = None,
+    base_seed: int | None = None,
+    device: str = "auto",
+) -> None:
+    """Generate trajectories for one or more registered agents."""
+    ensure_directories()
+
+    agent_types = registered_agents() if agent_types is None else agent_types
+    cpu_agents, neural_agents = split_torch_items(agent_types)
+    if uses_torch_agents(agent_types):
+        batches: list[tuple[list[Agent], bool, str]] = [
+            (cpu_agents, False, "CPU-only"),
+            (neural_agents, True, "neural"),
+        ]
+    else:
+        batches = [(cpu_agents, False, "CPU-only")]
+
+    total_task_count = sum(len(agent_batch) * num_runs for agent_batch, _, _ in batches)
+    if total_task_count == 0:
+        print("\nTrajectory generation complete!")
+        return
+
+    for batch_agents, batch_uses_torch, batch_label in batches:
+        if not batch_agents:
+            continue
+        tasks = _build_generation_tasks(
+            agent_types=batch_agents,
+            maze_name=maze_name,
+            num_runs=num_runs,
+            num_episodes=num_episodes,
+            observable=observable,
+            base_seed=base_seed,
+            device=device,
+        )
+        _execute_generation_tasks(
+            tasks,
+            agent_types=batch_agents,
+            workers=workers,
+            device=device,
+            verbose=verbose,
+            uses_torch=batch_uses_torch,
+            batch_label=batch_label,
+        )
 
     print("\nTrajectory generation complete!")
 

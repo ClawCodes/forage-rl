@@ -454,8 +454,9 @@ def _draw_mean_cumulative_reward(
     ax: plt.Axes,
     reward_sequences: list[np.ndarray],
 ) -> None:
-    """Draw mean cumulative reward with ±1 SD shading across run-level sequences."""
+    """Draw cumulative reward summary across episode-level reward sequences."""
     cumsums = [np.cumsum(rewards) for rewards in reward_sequences]
+<<<<<<< HEAD
     min_len = min(len(c) for c in cumsums)
     arr = np.array([c[:min_len] for c in cumsums])  # (n_runs, min_len)
     mean = arr.mean(axis=0)
@@ -466,16 +467,207 @@ def _draw_mean_cumulative_reward(
         x, mean - std, mean + std, alpha=0.3, color="#2ecc71", label="±1 SD"
     )
     ax.set_xlabel("Transition", fontsize=12)
+=======
+    min_len = min(len(cumsum) for cumsum in cumsums)
+    arr = np.array([cumsum[:min_len] for cumsum in cumsums])
+    mean = arr.mean(axis=0)
+    x = np.arange(min_len)
+
+    if len(reward_sequences) == 1:
+        ax.plot(x, mean, linewidth=2, color="#2ecc71", label="Episode")
+        ax.set_title("Cumulative Reward (single episode)", fontsize=14)
+    else:
+        std = arr.std(axis=0)
+        ax.plot(x, mean, linewidth=2, color="#2ecc71", label="Mean")
+        ax.fill_between(
+            x,
+            mean - std,
+            mean + std,
+            alpha=0.3,
+            color="#2ecc71",
+            label="±1 SD",
+        )
+        ax.set_title(
+            f"Mean Cumulative Reward (episodes={len(reward_sequences)})",
+            fontsize=14,
+        )
+
+    ax.set_xlabel("Transition Within Episode", fontsize=12)
+>>>>>>> b83a7d1 (update)
     ax.set_ylabel("Cumulative Reward", fontsize=12)
-    ax.set_title(f"Mean Cumulative Reward (n={len(reward_sequences)})", fontsize=14)
     ax.legend(fontsize=10)
 
 
-def _draw_modal_residency(
+def _patch_state_indices(maze: Maze) -> tuple[np.ndarray, np.ndarray]:
+    """Return state indices grouped by upper and lower patch labels."""
+    state_labels = maze.state_labels or [
+        f"State {state}" for state in range(maze.num_states)
+    ]
+    upper = np.array(
+        [state for state, label in enumerate(state_labels) if label == "Upper Patch"],
+        dtype=int,
+    )
+    lower = np.array(
+        [state for state, label in enumerate(state_labels) if label == "Lower Patch"],
+        dtype=int,
+    )
+
+    if len(upper) == 0 or len(lower) == 0:
+        raise ValueError(
+            "Patch-fraction residency plot requires both 'Upper Patch' and "
+            "'Lower Patch' labels in maze.state_labels."
+        )
+
+    recognized = {"Upper Patch", "Lower Patch"}
+    unknown = sorted(set(state_labels) - recognized)
+    if unknown:
+        raise ValueError(
+            "Patch-fraction residency plot only supports mazes labeled with "
+            f"'Upper Patch'/'Lower Patch', got extra labels: {unknown}"
+        )
+
+    return upper, lower
+
+
+def _occupancy_fractions(
+    state_sequences: list[np.ndarray],
+    domain_ids: list[int] | np.ndarray,
+) -> np.ndarray:
+    """Return occupancy fractions over an explicit id domain at each timestep."""
+    min_len = min(len(states) for states in state_sequences)
+    arr = np.array([states[:min_len] for states in state_sequences])
+    return np.array([(arr == state_id).mean(axis=0) for state_id in domain_ids])
+
+
+def _state_occupancy_fractions(
+    state_sequences: list[np.ndarray],
+    maze: Maze,
+) -> np.ndarray:
+    """Return per-state occupancy fractions at each timestep."""
+    return _occupancy_fractions(state_sequences, np.arange(maze.num_states))
+
+
+def _residency_line_labels(maze: Maze) -> list[str]:
+    """Return human-readable labels for residency lines."""
+    state_labels = maze.state_labels or [
+        f"State {state}" for state in range(maze.num_states)
+    ]
+    counts: dict[str, int] = {}
+    for label in state_labels:
+        counts[label] = counts.get(label, 0) + 1
+
+    labels: list[str] = []
+    for state, label in enumerate(state_labels):
+        if counts[label] == 1:
+            labels.append(label)
+        else:
+            labels.append(f"{label} (S{state})")
+    return labels
+
+
+def _residency_colors(maze: Maze) -> list[str]:
+    """Return line colors grouped by patch where possible."""
+    state_labels = maze.state_labels or [
+        f"State {state}" for state in range(maze.num_states)
+    ]
+    upper_palette = ["#1f77b4", "#4fa3d9", "#8ecae6"]
+    lower_palette = ["#d95f02", "#f4a261", "#f6bd60"]
+    fallback_palette = [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+    ]
+
+    upper_index = 0
+    lower_index = 0
+    colors: list[str] = []
+    for label in state_labels:
+        if label == "Upper Patch":
+            colors.append(upper_palette[upper_index % len(upper_palette)])
+            upper_index += 1
+        elif label == "Lower Patch":
+            colors.append(lower_palette[lower_index % len(lower_palette)])
+            lower_index += 1
+        else:
+            colors.append(fallback_palette[len(colors) % len(fallback_palette)])
+    return colors
+
+
+def _observed_group_plot_metadata(
+    maze: MazePOMDP,
+) -> tuple[list[int], list[str], list[str], str]:
+    """Return domain ids, labels, colors, and title base for PO occupancy plots."""
+    upper_palette = ["#1f77b4", "#4fa3d9", "#8ecae6"]
+    lower_palette = ["#d95f02", "#f4a261", "#f6bd60"]
+    fallback_palette = [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+    ]
+
+    group_to_labels: dict[int, set[str]] = {}
+    for state in maze.maze_spec.states:
+        group_to_labels.setdefault(state.observation_group, set()).add(state.label)
+
+    group_ids = sorted(group_to_labels)
+    labels: list[str] = []
+    colors: list[str] = []
+    upper_index = 0
+    lower_index = 0
+    recognized_groups = True
+    for group_id in group_ids:
+        group_labels = group_to_labels[group_id]
+        if len(group_labels) == 1:
+            label = next(iter(group_labels))
+            if label == "Upper Patch":
+                labels.append("Observed Upper Patch")
+                colors.append(upper_palette[upper_index % len(upper_palette)])
+                upper_index += 1
+                continue
+            if label == "Lower Patch":
+                labels.append("Observed Lower Patch")
+                colors.append(lower_palette[lower_index % len(lower_palette)])
+                lower_index += 1
+                continue
+        recognized_groups = False
+        labels.append(f"Observation Group {group_id}")
+        colors.append(fallback_palette[len(colors) % len(fallback_palette)])
+
+    title_base = (
+        "Observed Patch Occupancy"
+        if recognized_groups
+        else "Observation Group Occupancy"
+    )
+    return group_ids, labels, colors, title_base
+
+
+def _occupancy_plot_metadata(
+    maze: MazeMDP,
+) -> tuple[list[int], list[str], list[str], str]:
+    """Return occupancy domain metadata for FO and PO trajectory summaries."""
+    if isinstance(maze, MazePOMDP):
+        return _observed_group_plot_metadata(maze)
+    title_base = "Patch Occupancy" if maze.num_states == 2 else "State Occupancy"
+    return (
+        list(range(maze.num_states)),
+        _residency_line_labels(maze),
+        _residency_colors(maze),
+        title_base,
+    )
+
+
+def _draw_residency_fractions(
     ax: plt.Axes,
     state_sequences: list[np.ndarray],
     maze: MazeMDP,
 ) -> None:
+<<<<<<< HEAD
     """Draw the modal (most frequent) location at each time step across runs.
 
     Marker size is proportional to the fraction of runs in the modal bin.
@@ -515,18 +707,37 @@ def _draw_modal_residency(
     ax.set_title(f"Modal Residency Location (n={len(state_sequences)})", fontsize=14)
 
 
+=======
+    """Draw occupancy fraction at each timestep across the plotted domain."""
+    domain_ids, labels, colors, title_base = _occupancy_plot_metadata(maze)
+    occupancy = _occupancy_fractions(state_sequences, domain_ids)
+    x = np.arange(occupancy.shape[1])
+    for state, series in enumerate(occupancy):
+        ax.plot(
+            x,
+            series,
+            linewidth=2.0,
+            color=colors[state],
+            label=labels[state],
+        )
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xlabel("Transition Within Episode", fontsize=12)
+    ax.set_ylabel("Fraction of Episodes", fontsize=12)
+    if len(state_sequences) == 1:
+        title = f"{title_base} (single episode)"
+        ax.set_title(title, fontsize=14)
+    else:
+        ax.set_title(f"{title_base} Fraction (episodes={len(state_sequences)})", fontsize=14)
+    ax.legend(fontsize=9, ncol=2 if len(domain_ids) > 3 else 1)
+
+
+>>>>>>> b83a7d1 (update)
 def plot_mean_cumulative_reward(
     reward_sequences: list[np.ndarray],
     save: bool = False,
     show: bool = True,
 ):
-    """Plot mean cumulative reward with ±1 SD shading across run-level sequences.
-
-    Args:
-        reward_sequences: Per-run reward sequences to aggregate
-        save: Whether to save the figure
-        show: Whether to display the figure
-    """
+    """Plot cumulative reward summary across episode-level sequences."""
     fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
     _draw_mean_cumulative_reward(ax, reward_sequences)
     if save:
@@ -545,16 +756,9 @@ def plot_modal_residency(
     save: bool = False,
     show: bool = True,
 ):
-    """Plot the modal state at each time step across run-level state sequences.
-
-    Args:
-        state_sequences: Per-run state sequences to aggregate
-        maze: Maze providing state labels
-        save: Whether to save the figure
-        show: Whether to display the figure
-    """
+    """Plot per-state occupancy fraction across episode-level sequences."""
     fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
-    _draw_modal_residency(ax, state_sequences, maze)
+    _draw_residency_fractions(ax, state_sequences, maze)
     if save:
         ensure_directories()
         filepath = FIGURES_DIR / "modal_residency.png"
@@ -572,32 +776,54 @@ def plot_mean_trajectory_stats(
     source: Agent,
     save: bool = False,
     show: bool = True,
+    run_count: Optional[int] = None,
 ):
-    """High-level overview aggregated across multiple trajectories.
-
-    Left panel: mean cumulative reward with SD shading.
-    Right panel: modal residency scatter plot.
-
-    Args:
-        reward_sequences: Per-run reward sequences to aggregate
-        state_sequences: Per-run state sequences to aggregate
-        maze: Maze providing state labels
-        source: Agent type that generated the trajectories
-        save: Whether to save the figure
-        show: Whether to display the figure
-    """
+    """High-level overview aggregated across episode trajectories."""
     fig, (ax_reward, ax_residency) = plt.subplots(
         1, 2, figsize=(14, 5), constrained_layout=True
     )
 
-    _draw_mean_cumulative_reward(ax_reward, reward_sequences)
-    _draw_modal_residency(ax_residency, state_sequences, maze)
+    if not reward_sequences or not state_sequences:
+        ax_reward.text(0.5, 0.5, "No episode data", ha="center", va="center")
+        ax_residency.text(0.5, 0.5, "No episode data", ha="center", va="center")
+        fig.suptitle(
+            f"Aggregate Trajectory Overview: '{source}' (episodes=0, runs={run_count or 0})",
+            fontsize=16,
+            fontweight="bold",
+        )
+        if show:
+            plt.show()
+        return fig
 
-    fig.suptitle(
-        f"Average Trajectory Overview: '{source}' (n={len(reward_sequences)})",
-        fontsize=16,
-        fontweight="bold",
+    _draw_mean_cumulative_reward(ax_reward, reward_sequences)
+    _draw_residency_fractions(ax_residency, state_sequences, maze)
+
+    episode_count = len(reward_sequences)
+    resolved_run_count = run_count if run_count is not None else episode_count
+    if episode_count == 1:
+        title = (
+            f"Trajectory Overview: '{source}' (episodes={episode_count}, runs={resolved_run_count})"
+        )
+    else:
+        title = (
+            f"Aggregate Trajectory Overview: '{source}' "
+            f"(episodes={episode_count}, runs={resolved_run_count})"
+        )
+    fig.suptitle(title, fontsize=16, fontweight="bold")
+
+    fig.text(
+        0.5,
+        0.01,
+        "Episode-aligned summary: episodes are aligned by within-episode "
+        "timestep; x-axis spans the episode horizon, not total transitions "
+        "across all episodes.",
+        ha="center",
+        fontsize=10,
+        color="#7f8c8d",
     )
+    note = _low_sample_note(resolved_run_count, episode_count)
+    if note is not None:
+        fig.text(0.5, 0.04, note, ha="center", fontsize=10, color="#7f8c8d")
 
     if save:
         ensure_directories()
@@ -610,6 +836,8 @@ def plot_mean_trajectory_stats(
         print(f"Saved to {filepath}")
     if show:
         plt.show()
+    elif save:
+        plt.close(fig)
     return fig
 
 
@@ -618,28 +846,22 @@ def plot_aggregate_trajectory_stats(
     maze_name: str = "simple",
     observable: bool = True,
     save: bool = True,
+    show: bool = True,
 ) -> None:
-    """Load all saved run datasets for source and plot aggregate trajectory stats.
-
-    Produces a 2-panel figure: mean cumulative reward (left) and modal residency (right).
-
-    Args:
-        source: Agent whose saved run datasets to load
-        maze_name: Built-in maze spec name
-        observable: True for fully observable (FO), False for partially observable (PO)
-        save: Whether to save the figure
-    """
+    """Load saved run datasets for source and plot episode-level trajectory stats."""
+    run_ids = list_run_dataset_run_ids(source, maze_name, observable)
     run_datasets = [
-        load_run_dataset(source, i, maze_name, observable)
-        for i in range(get_run_count(source, maze_name, observable))
+        load_run_dataset(source, run_id, maze_name, observable) for run_id in run_ids
     ]
     reward_sequences = [
-        np.array([transition.reward for transition in run_dataset.iter_transitions()])
+        np.array([transition.reward for transition in trajectory.transitions])
         for run_dataset in run_datasets
+        for trajectory in run_dataset.trajectories
     ]
     state_sequences = [
-        np.array([transition.state for transition in run_dataset.iter_transitions()])
+        np.array([transition.state for transition in trajectory.transitions])
         for run_dataset in run_datasets
+        for trajectory in run_dataset.trajectories
     ]
     maze = maze_from_builtin_maze_spec(maze_name, observable)
     plot_mean_trajectory_stats(
@@ -648,7 +870,10 @@ def plot_aggregate_trajectory_stats(
         maze,
         source,
         save=save,
+        show=show,
+        run_count=len(run_ids),
     )
+<<<<<<< HEAD
 
 
 def plot_aggregate_comparison(
@@ -760,3 +985,83 @@ if __name__ == "__main__":
     # plot_aggregate_comparison(
     #     Agent.QLearning, [Agent.MBRL], maze_name="full", observable=False, save=True
     # )
+=======
+
+
+def plot_aggregate_comparison(
+    source: Agent,
+    compare_to: list[EvaluatorInput],
+    maze_name: str = "simple",
+    num_datasets: Optional[int] = None,
+    observable: bool = True,
+    save: bool = False,
+    show: bool = True,
+):
+    """Plot a 2-panel source-centric comparison figure for source vs evaluators."""
+    fig, (ax_bars, ax_lines) = plt.subplots(
+        1, 2, figsize=(18, 6), constrained_layout=True
+    )
+
+    run_count = _draw_model_accuracies(
+        ax_bars, source, compare_to, maze_name, num_datasets, observable
+    )
+    _draw_running_win_rate(
+        ax_lines, source, compare_to, maze_name, num_datasets, observable
+    )
+
+    title = (
+        "Source-Centric Model Comparison on Saved Source Trajectories\n"
+        f"{_source_policy_description(source)}"
+    )
+    note = f"Low sample size (runs={run_count})" if run_count < 2 else None
+    if note is not None:
+        title = f"{title}\n{note}"
+    fig.suptitle(title, fontsize=16, fontweight="bold")
+
+    if save:
+        ensure_directories()
+        comparisons = "_".join(_filename_label(evaluator) for evaluator in compare_to)
+        obs_tag = "FO" if observable else "PO"
+        filepath = (
+            FIGURES_DIR
+            / f"agg_compare_{source.value}_to_{comparisons}_{maze_name}_{obs_tag}.png"
+        )
+        plt.savefig(filepath, dpi=150)
+        print(f"Saved to {filepath}")
+
+    if show:
+        plt.show()
+    elif save:
+        plt.close(fig)
+
+    return fig
+
+
+if __name__ == "__main__":
+    mode_aware_evaluators: list[EvaluatorInput] = [
+        Agent.MBRL,
+        Agent.QLearning,
+        EvaluatorSpec(agent=Agent.DQN, mode="fresh"),
+        EvaluatorSpec(agent=Agent.DQN, mode="pretrained"),
+        EvaluatorSpec(agent=Agent.DRQN, mode="fresh"),
+        EvaluatorSpec(agent=Agent.DRQN, mode="pretrained"),
+    ]
+
+    for source_agent in [Agent.MBRL, Agent.QLearning, Agent.DQN, Agent.DRQN]:
+        for maze_name in ["simple", "full"]:
+            for observable in [True, False]:
+                plot_aggregate_trajectory_stats(
+                    source_agent,
+                    maze_name=maze_name,
+                    observable=observable,
+                    save=True,
+                )
+                plot_aggregate_comparison(
+                    source_agent,
+                    mode_aware_evaluators,
+                    maze_name=maze_name,
+                    observable=observable,
+                    save=True,
+                    show=False,
+                )
+>>>>>>> b83a7d1 (update)

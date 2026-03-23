@@ -5,12 +5,14 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 from dataclasses import dataclass
+from typing import TypeVar
 
 from forage_rl.agents.registry import Agent, EvaluatorSpec
 from forage_rl.utils.torch_support import resolve_device
 
 
 NEURAL_AGENTS = {Agent.DQN, Agent.DRQN}
+TAgentLike = TypeVar("TAgentLike", Agent, EvaluatorSpec)
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,24 @@ def uses_torch_agents(items: list[Agent | EvaluatorSpec] | None) -> bool:
         if is_neural_agent(agent):
             return True
     return False
+
+
+def split_torch_items(
+    items: list[TAgentLike] | None,
+) -> tuple[list[TAgentLike], list[TAgentLike]]:
+    """Split items into CPU-safe and torch-backed groups, preserving order."""
+    if items is None:
+        return [], []
+
+    cpu_items: list[TAgentLike] = []
+    torch_items: list[TAgentLike] = []
+    for item in items:
+        agent = item if isinstance(item, Agent) else item.agent
+        if is_neural_agent(agent):
+            torch_items.append(item)
+        else:
+            cpu_items.append(item)
+    return cpu_items, torch_items
 
 
 def resolve_worker_count(task_count: int, workers: int | None = None) -> int:
