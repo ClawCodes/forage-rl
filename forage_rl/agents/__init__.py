@@ -1,10 +1,10 @@
 """Agent modules implementing different reinforcement learning algorithms."""
 
-from .q_learning import QLearning, QLearningTime
 from .model_based import MBRL
-from .value_iteration import ValueIterationSolver
-from .registry import get_agent, registered_agents
+from .q_learning import QLearning, QLearningTime
 from .q_table import QTable
+from .registry import Agent as _Agent, get_agent, registered_agents
+from .value_iteration import ValueIterationSolver
 
 __all__ = [
     "QLearning",
@@ -14,4 +14,7 @@ __all__ = [
     "get_agent",
     "registered_agents",
     "QTable",
+    "DQNAgent",
+    "DRQNAgent",
+    "EvaluatorSpec",
 ]
