@@ -12,7 +12,7 @@ from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments.maze import Maze, MazeMDP, MazePOMDP
 from forage_rl.environments.maze import maze_from_builtin_maze_spec
 from forage_rl.types import Trajectory
-from forage_rl.utils import get_run_count, load_logprobs, load_trajectories
+from forage_rl.utils import get_run_count, load_logprobs, load_run_dataset
 
 
 def _draw_cumulative_accuracy(
@@ -452,12 +452,12 @@ def plot_trajectory_stats(
 
 def _draw_mean_cumulative_reward(
     ax: plt.Axes,
-    trajectories: "list[Trajectory]",
+    reward_sequences: list[np.ndarray],
 ) -> None:
-    """Draw mean cumulative reward with ±1 SD shading across trajectories onto ax."""
-    cumsums = [np.cumsum([t.reward for t in traj.transitions]) for traj in trajectories]
+    """Draw mean cumulative reward with ±1 SD shading across run-level sequences."""
+    cumsums = [np.cumsum(rewards) for rewards in reward_sequences]
     min_len = min(len(c) for c in cumsums)
-    arr = np.array([c[:min_len] for c in cumsums])  # (n_trajs, min_len)
+    arr = np.array([c[:min_len] for c in cumsums])  # (n_runs, min_len)
     mean = arr.mean(axis=0)
     std = arr.std(axis=0)
     x = np.arange(min_len)
@@ -467,47 +467,44 @@ def _draw_mean_cumulative_reward(
     )
     ax.set_xlabel("Transition", fontsize=12)
     ax.set_ylabel("Cumulative Reward", fontsize=12)
-    ax.set_title(f"Mean Cumulative Reward (n={len(trajectories)})", fontsize=14)
+    ax.set_title(f"Mean Cumulative Reward (n={len(reward_sequences)})", fontsize=14)
     ax.legend(fontsize=10)
 
 
 def _draw_modal_residency(
     ax: plt.Axes,
-    trajectories: "list[Trajectory]",
-    maze: "Maze",
+    state_sequences: list[np.ndarray],
+    maze: MazeMDP,
 ) -> None:
-    """Draw the modal (most frequent) state at each time step across trajectories.
+    """Draw the modal (most frequent) location at each time step across runs.
 
-    Marker size is proportional to the fraction of trajectories in the modal state.
-    For partially observable mazes, bins trajectories by observation group rather
-    than raw state, and labels the y-axis with observation group names.
+    Marker size is proportional to the fraction of runs in the modal bin.
+    For partially observable mazes, accepts either raw states or observation-group
+    sequences and labels the y-axis with observation group names.
     """
-    state_seqs = [[t.state for t in traj.transitions] for traj in trajectories]
-    min_len = min(len(s) for s in state_seqs)
-    arr = np.array([s[:min_len] for s in state_seqs])  # (n_trajs, min_len)
+    min_len = min(len(states) for states in state_sequences)
+    arr = np.asarray([states[:min_len] for states in state_sequences], dtype=int)
 
     if isinstance(maze, MazePOMDP):
-        obs_map = maze._state_to_observation_group
-        obs_arr = np.vectorize(obs_map.__getitem__)(arr)
+        if np.all((arr >= 0) & (arr < maze.num_observations)):
+            binned_arr = arr
+        else:
+            obs_map = maze._state_to_observation_group
+            binned_arr = np.vectorize(obs_map.__getitem__)(arr)
         n_bins = maze.num_observations
-        modal_vals = []
-        frequencies = []
-        for step in range(min_len):
-            counts = np.bincount(obs_arr[:, step], minlength=n_bins)
-            modal = int(np.argmax(counts))
-            modal_vals.append(modal)
-            frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.maze_spec.observation_labels
     else:
+        binned_arr = arr
         n_bins = maze.num_states
-        modal_vals = []
-        frequencies = []
-        for step in range(min_len):
-            counts = np.bincount(arr[:, step], minlength=n_bins)
-            modal = int(np.argmax(counts))
-            modal_vals.append(modal)
-            frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.state_labels or [f"State {s}" for s in range(n_bins)]
+
+    modal_vals = []
+    frequencies = []
+    for step in range(min_len):
+        counts = np.bincount(binned_arr[:, step], minlength=n_bins)
+        modal = int(np.argmax(counts))
+        modal_vals.append(modal)
+        frequencies.append(counts[modal] / len(state_sequences))
 
     sizes = np.array(frequencies) * 40
     ax.scatter(range(min_len), modal_vals, s=sizes, alpha=0.7, color="#3498db")
@@ -515,23 +512,23 @@ def _draw_modal_residency(
     ax.set_yticklabels(y_labels)
     ax.set_xlabel("Transition", fontsize=12)
     ax.set_ylabel("Location", fontsize=12)
-    ax.set_title(f"Modal Residency Location (n={len(trajectories)})", fontsize=14)
+    ax.set_title(f"Modal Residency Location (n={len(state_sequences)})", fontsize=14)
 
 
 def plot_mean_cumulative_reward(
-    trajectories: "list[Trajectory]",
+    reward_sequences: list[np.ndarray],
     save: bool = False,
     show: bool = True,
 ):
-    """Plot mean cumulative reward with ±1 SD shading across a list of trajectories.
+    """Plot mean cumulative reward with ±1 SD shading across run-level sequences.
 
     Args:
-        trajectories: Trajectories to aggregate
+        reward_sequences: Per-run reward sequences to aggregate
         save: Whether to save the figure
         show: Whether to display the figure
     """
     fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
-    _draw_mean_cumulative_reward(ax, trajectories)
+    _draw_mean_cumulative_reward(ax, reward_sequences)
     if save:
         ensure_directories()
         filepath = FIGURES_DIR / "mean_cumulative_reward.png"
@@ -543,21 +540,21 @@ def plot_mean_cumulative_reward(
 
 
 def plot_modal_residency(
-    trajectories: "list[Trajectory]",
+    state_sequences: list[np.ndarray],
     maze: MazeMDP,
     save: bool = False,
     show: bool = True,
 ):
-    """Plot the modal state at each time step across a list of trajectories.
+    """Plot the modal state at each time step across run-level state sequences.
 
     Args:
-        trajectories: Trajectories to aggregate
+        state_sequences: Per-run state sequences to aggregate
         maze: Maze providing state labels
         save: Whether to save the figure
         show: Whether to display the figure
     """
     fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
-    _draw_modal_residency(ax, trajectories, maze)
+    _draw_modal_residency(ax, state_sequences, maze)
     if save:
         ensure_directories()
         filepath = FIGURES_DIR / "modal_residency.png"
@@ -569,7 +566,8 @@ def plot_modal_residency(
 
 
 def plot_mean_trajectory_stats(
-    trajectories: list[Trajectory],
+    reward_sequences: list[np.ndarray],
+    state_sequences: list[np.ndarray],
     maze: MazeMDP,
     source: Agent,
     save: bool = False,
@@ -581,7 +579,8 @@ def plot_mean_trajectory_stats(
     Right panel: modal residency scatter plot.
 
     Args:
-        trajectories: Trajectories to aggregate
+        reward_sequences: Per-run reward sequences to aggregate
+        state_sequences: Per-run state sequences to aggregate
         maze: Maze providing state labels
         source: Agent type that generated the trajectories
         save: Whether to save the figure
@@ -591,11 +590,11 @@ def plot_mean_trajectory_stats(
         1, 2, figsize=(14, 5), constrained_layout=True
     )
 
-    _draw_mean_cumulative_reward(ax_reward, trajectories)
-    _draw_modal_residency(ax_residency, trajectories, maze)
+    _draw_mean_cumulative_reward(ax_reward, reward_sequences)
+    _draw_modal_residency(ax_residency, state_sequences, maze)
 
     fig.suptitle(
-        f"Average Trajectory Overview: '{source}' (n={len(trajectories)})",
+        f"Average Trajectory Overview: '{source}' (n={len(reward_sequences)})",
         fontsize=16,
         fontweight="bold",
     )
@@ -620,22 +619,36 @@ def plot_aggregate_trajectory_stats(
     observable: bool = True,
     save: bool = True,
 ) -> None:
-    """Load all saved trajectories for source and plot aggregate trajectory stats.
+    """Load all saved run datasets for source and plot aggregate trajectory stats.
 
     Produces a 2-panel figure: mean cumulative reward (left) and modal residency (right).
 
     Args:
-        source: Agent whose saved trajectories to load
+        source: Agent whose saved run datasets to load
         maze_name: Built-in maze spec name
         observable: True for fully observable (FO), False for partially observable (PO)
         save: Whether to save the figure
     """
-    trajectories = [
-        load_trajectories(source, i, maze_name, observable)
+    run_datasets = [
+        load_run_dataset(source, i, maze_name, observable)
         for i in range(get_run_count(source, maze_name, observable))
     ]
+    reward_sequences = [
+        np.array([transition.reward for transition in run_dataset.iter_transitions()])
+        for run_dataset in run_datasets
+    ]
+    state_sequences = [
+        np.array([transition.state for transition in run_dataset.iter_transitions()])
+        for run_dataset in run_datasets
+    ]
     maze = maze_from_builtin_maze_spec(maze_name, observable)
-    plot_mean_trajectory_stats(trajectories, maze, source, save=save)
+    plot_mean_trajectory_stats(
+        reward_sequences,
+        state_sequences,
+        maze,
+        source,
+        save=save,
+    )
 
 
 def plot_aggregate_comparison(
