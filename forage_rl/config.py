@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 TRAJECTORIES_DIR = DATA_DIR / "trajectories"
 LOGPROBS_DIR = DATA_DIR / "logprobs"
+CHECKPOINTS_DIR = DATA_DIR / "checkpoints"
 FIGURES_DIR = BASE_DIR / "outputs" / "figures"
 MAZE_SPECS_DIR = BASE_DIR / "forage_rl" / "environments" / "maze_specs"
 
@@ -15,6 +16,7 @@ def ensure_directories():
     """Create output directories if they don't exist."""
     TRAJECTORIES_DIR.mkdir(parents=True, exist_ok=True)
     LOGPROBS_DIR.mkdir(parents=True, exist_ok=True)
+    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -40,3 +42,12 @@ class DefaultParams:
     NUM_PLANNING_STEPS = 10
     CONVERGENCE_THRESHOLD = 0.01
     MAX_TIME_SPENT = 10
+
+    # Neural agent parameters
+    LEARNING_RATE = 1e-3
+    REPLAY_CAPACITY = 4096
+    BATCH_SIZE = 64
+    DRQN_SEQUENCE_LENGTH = 16
+    TARGET_UPDATE_INTERVAL = 50
+    GRADIENT_CLIP = 5.0
+    FRESH_EVALUATOR_SEED = 0
