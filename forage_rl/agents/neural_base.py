@@ -66,9 +66,10 @@ class NeuralAgentBase(BaseAgent):
         self.gradient_clip = gradient_clip
         self.init_mode = init_mode
         self.device = resolve_device(device)
-        self.obs_dim = maze.observation_space.n  # type: ignore[attr-defined]
+        self.obs_dim = int(maze.observation_space.n)  # type: ignore[attr-defined]
         self.feature_schema_version = DefaultParams.NEURAL_FEATURE_SCHEMA_VERSION
-        self.feature_dim = self.obs_dim + 1 + 1 + self.maze.num_actions
+        action_dim = int(self.maze.num_actions)
+        self.feature_dim = int(self.obs_dim + 1 + 1 + action_dim)
         self.training_steps = 0
 
         self.torch = require_torch()
