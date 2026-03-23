@@ -17,12 +17,17 @@ class Agent(StrEnum):
 
 
 AGENT_REGISTRY: dict[Agent, AgentFactory] = {
-    Agent.MBRL: lambda maze, num_episodes=DefaultParams.NUM_EPISODES: MBRL(
-        maze, num_episodes=num_episodes, gamma=DefaultParams.GAMMA
+    Agent.MBRL: lambda maze, **kwargs: MBRL(
+        maze,
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
+        **kwargs,
     ),
-    Agent.QLearning: lambda maze,
-    num_episodes=DefaultParams.NUM_EPISODES: QLearningTime(
-        maze, num_episodes=num_episodes, alpha=DefaultParams.ALPHA
+    Agent.QLearning: lambda maze, **kwargs: QLearningTime(
+        maze,
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        alpha=kwargs.pop("alpha", DefaultParams.ALPHA),
+        **kwargs,
     ),
 }
 
