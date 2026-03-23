@@ -9,11 +9,16 @@ from forage_rl.agents import get_agent, registered_agents
 from forage_rl.agents.registry import Agent
 from forage_rl.config import DefaultParams, ensure_directories
 from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
-from forage_rl.experiments.parallel import resolve_worker_count
-from forage_rl.utils import save_trajectories
+from forage_rl.experiments.parallel import (
+    is_neural_agent,
+    resolve_execution_strategy,
+    uses_torch_agents,
+)
+from forage_rl.utils.torch_support import configure_torch_worker
+from forage_rl.utils import save_run_dataset
 
 
-GenerationTask = tuple[Agent, int, str, int, bool, int | None]
+GenerationTask = tuple[Agent, int, str, int, bool, int | None, str]
 
 
 class GenerationResult(TypedDict):
@@ -44,32 +49,48 @@ def _build_generation_tasks(
     num_episodes: int,
     observable: bool,
     base_seed: int | None,
+    device: str,
 ) -> list[GenerationTask]:
     return [
-        (agent_type, run_id, maze_name, num_episodes, observable, base_seed)
+        (agent_type, run_id, maze_name, num_episodes, observable, base_seed, device)
         for agent_type in agent_types
         for run_id in range(num_runs)
     ]
 
 
 def _generate_single_run(task: GenerationTask) -> GenerationResult:
-    agent_type, run_id, maze_name, num_episodes, observable, base_seed = task
+    agent_type, run_id, maze_name, num_episodes, observable, base_seed, device = task
 
     maze_spec = load_builtin_maze_spec(maze_name)
     maze_cls = Maze if observable else MazePOMDP
     run_seed = None if base_seed is None else base_seed + run_id
     agent_seed = _derive_agent_seed(run_seed)
 
+    if is_neural_agent(agent_type):
+        configure_torch_worker(device)
+
     start = time.perf_counter()
     maze = maze_cls(maze_spec, seed=run_seed)
-    agent = get_agent(agent_type, maze, num_episodes=num_episodes, seed=agent_seed)
-    transitions = agent.train(verbose=False)
-    filepath = save_trajectories(transitions, agent_type, run_id, maze_name, observable)
+    agent = get_agent(
+        agent_type,
+        maze,
+        num_episodes=num_episodes,
+        seed=agent_seed,
+        device=device,
+    )
+    run_dataset = agent.train(verbose=False)
+    filepath = save_run_dataset(
+        run_dataset,
+        agent_type,
+        run_id,
+        maze_name,
+        observable,
+    )
 
     return {
         "agent_type": agent_type,
         "run_id": run_id,
-        "num_transitions": len(transitions),
+        "num_transitions": run_dataset.num_transitions(),
         "filepath": str(filepath),
         "elapsed": time.perf_counter() - start,
     }
@@ -105,6 +126,7 @@ def run_generation_experiment(
     verbose: bool = True,
     workers: int | None = None,
     base_seed: int | None = None,
+    device: str = "auto",
 ) -> None:
     """Generate trajectories for one or more registered agents."""
     ensure_directories()
@@ -117,10 +139,17 @@ def run_generation_experiment(
         num_episodes=num_episodes,
         observable=observable,
         base_seed=base_seed,
+        device=device,
     )
 
     task_count = len(tasks)
-    worker_count = resolve_worker_count(task_count, workers)
+    strategy = resolve_execution_strategy(
+        task_count,
+        workers,
+        uses_torch=uses_torch_agents(agent_types),
+        device=device,
+    )
+    worker_count = strategy.worker_count
 
     if task_count == 0:
         print("\nTrajectory generation complete!")
@@ -131,6 +160,8 @@ def run_generation_experiment(
             f"Generating {task_count} trajectories across {len(agent_types)} agent(s) "
             f"with {worker_count} worker(s)..."
         )
+        if strategy.worker_note is not None:
+            print(strategy.worker_note)
 
     start = time.perf_counter()
 
@@ -140,7 +171,10 @@ def run_generation_experiment(
             if verbose:
                 _print_generation_result(result, completed, task_count)
     else:
-        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+        executor_kwargs = {"max_workers": worker_count}
+        if strategy.mp_context is not None:
+            executor_kwargs["mp_context"] = strategy.mp_context
+        with ProcessPoolExecutor(**executor_kwargs) as executor:
             futures = [executor.submit(_generate_single_run, task) for task in tasks]
             for completed, future in enumerate(as_completed(futures), start=1):
                 result = future.result()
@@ -163,6 +197,7 @@ def generate_trajectories(
     verbose: bool = True,
     workers: int | None = None,
     base_seed: int | None = None,
+    device: str = "auto",
 ) -> None:
     """Generate trajectories from a single registered agent."""
     run_generation_experiment(
@@ -174,6 +209,7 @@ def generate_trajectories(
         verbose=verbose,
         workers=workers,
         base_seed=base_seed,
+        device=device,
     )
 
 
@@ -209,6 +245,11 @@ def main() -> None:
         default=None,
         help="Optional base seed; each run uses base seed + run id",
     )
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help="Torch device for neural agents: auto, cpu, cuda, or mps",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
     parser.add_argument(
         "--maze",
@@ -232,6 +273,7 @@ def main() -> None:
         verbose=not args.quiet,
         workers=args.workers,
         base_seed=args.seed,
+        device=args.device,
     )
 
 
