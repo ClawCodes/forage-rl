@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from forage_rl import Trajectory
+from forage_rl import RunDataset, Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
 from .q_table import QTable
@@ -44,13 +44,13 @@ class BaseAgent(ABC):
         return self.q_table.policy()
 
     @abstractmethod
-    def simulate(self, trajectory) -> list[float]:
-        """Evaluate log-likelihood of each transition under this agent's learning rule."""
+    def simulate(self, trajectory: Trajectory) -> list[float]:
+        """Evaluate one episode under this agent's learning rule."""
         ...
 
     @abstractmethod
-    def train(self, verbose: bool = True) -> Trajectory:
-        """Train the agent on the provided Maze"""
+    def train(self, verbose: bool = True) -> RunDataset:
+        """Train the agent on the provided maze and return one run dataset."""
         ...
 
     def print_policy(self, max_time_to_display: int = 6):
