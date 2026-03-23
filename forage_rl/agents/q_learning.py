@@ -1,15 +1,14 @@
 """Q-learning agents for reinforcement learning."""
 
 import numpy as np
-from forage_rl import Trajectory
 
-from .base import BaseAgent
-from .q_table import QTable
-
+from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
-from forage_rl import TimedTransition
+
 from ..types import Transition
+from .base import BaseAgent
+from .q_table import QTable
 
 
 class QLearning(BaseAgent):
@@ -37,6 +36,10 @@ class QLearning(BaseAgent):
         self.min_epsilon = min_epsilon
         self.decay_rate = decay_rate
         self.q_table = QTable(maze, timed=False)
+        self.q_history: list[list[float]] = [
+            [] for _ in range(self.q_table.n_obs * self.maze.num_actions)
+        ]
+        self.returns: list[float] = []
 
     def simulate(self, trajectory) -> list[float]:
         raise NotImplementedError(
@@ -56,27 +59,41 @@ class QLearning(BaseAgent):
         td_error = td_target - self.q_table.get(t.state, t.action)
         self.q_table.update(t.state, t.action, self.alpha * td_error)
 
-    def train(self, verbose: bool = True):
-        """Train the agent."""
-        for episode in range(self.num_episodes):
+    def train(self, verbose: bool = True) -> RunDataset:
+        """Train the agent and return one trajectory per episode."""
+        trajectories: list[Trajectory[Transition]] = []
+
+        for _ in range(self.num_episodes):
             state, _ = self.maze.reset()
             done = False
-            total_reward = 0
+            total_reward = 0.0
+            episode_transitions: list[Transition] = []
 
             while not done:
                 action = self.choose_action(state)
                 transition, done = self.maze.step_transition(action)
+                episode_transitions.append(transition)
                 self.update_q_value(transition)
                 state = transition.next_state
                 total_reward += transition.reward
 
-            # Decay epsilon
+            dense_q = self.q_table.to_array()
+            for s in range(dense_q.shape[0]):
+                for a in range(dense_q.shape[1]):
+                    self.q_history[s * self.maze.num_actions + a].append(
+                        float(dense_q[s, a])
+                    )
+
             self.epsilon = max(self.min_epsilon, self.epsilon * self.decay_rate)
+            self.returns.append(total_reward)
+            trajectories.append(Trajectory(transitions=episode_transitions))
 
         if verbose:
             print("Training completed.")
             print("Final Q-table:")
-            print(self.q_table._data)
+            print(self.q_table.to_array())
+
+        return RunDataset(trajectories=trajectories)
 
 
 class QLearningTime(BaseAgent):
@@ -145,22 +162,23 @@ class QLearningTime(BaseAgent):
 
         return log_likelihoods
 
-    def train(self, verbose: bool = True) -> Trajectory:
+    def train(self, verbose: bool = True) -> RunDataset:
         """Train the agent and optionally save trajectories.
 
         Args:
             verbose: Whether to print progress
 
         Returns:
-            List of transitions
+            Run dataset containing one trajectory per episode
         """
-        transitions = []
+        trajectories: list[Trajectory[TimedTransition]] = []
 
         for episode in range(self.num_episodes):
             state, _ = self.maze.reset()
             time_spent = 0
             done = False
             max_time_spent = 0
+            episode_transitions: list[TimedTransition] = []
 
             while not done:
                 local_idx = self.choose_action(state, time_spent)
@@ -170,8 +188,7 @@ class QLearningTime(BaseAgent):
                 timed_transition = TimedTransition.from_transition_time(
                     transition, time_spent
                 )
-
-                transitions.append(timed_transition)
+                episode_transitions.append(timed_transition)
 
                 self.update_q_value(timed_transition)
 
@@ -190,8 +207,10 @@ class QLearningTime(BaseAgent):
                     avg_q = self.q_table.mean()
                     print(f"Episode {episode}, Average Q-value: {avg_q:.4f}")
 
+            trajectories.append(Trajectory(transitions=episode_transitions))
+
         if verbose:
             print("Training completed.")
             self.print_policy()
 
-        return Trajectory(transitions=transitions)
+        return RunDataset(trajectories=trajectories)
