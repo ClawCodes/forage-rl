@@ -1,5 +1,6 @@
 """File I/O utilities for saving and loading experiment data."""
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,13 @@ from forage_rl.config import LOGPROBS_DIR, TRAJECTORIES_DIR, ensure_directories
 
 def _obs_tag(observable: bool) -> str:
     return "FO" if observable else "PO"
+
+
+def _extract_run_id(filepath: Path) -> int:
+    match = re.search(r"_(\d+)\.npy$", filepath.name)
+    if match is None:
+        raise ValueError(f"Could not parse run id from filename: {filepath.name}")
+    return int(match.group(1))
 
 
 def save_trajectories(
@@ -161,6 +169,18 @@ def list_trajectory_files(
     return sorted(TRAJECTORIES_DIR.glob(pattern))
 
 
+def list_trajectory_run_ids(
+    agent: Agent,
+    maze_name: str,
+    observable: bool = True,
+) -> list[int]:
+    """Return sorted saved run ids for an agent/maze combination."""
+    return sorted(
+        _extract_run_id(filepath)
+        for filepath in list_trajectory_files(agent, maze_name, observable)
+    )
+
+
 def list_logprob_files(
     label: Optional[str] = None,
     maze_name: Optional[str] = None,
@@ -197,4 +217,4 @@ def get_run_count(agent: Agent, maze_name: str, observable: bool = True) -> int:
     Returns:
         Number of trajectory files
     """
-    return len(list_trajectory_files(agent, maze_name, observable))
+    return len(list_trajectory_run_ids(agent, maze_name, observable))
