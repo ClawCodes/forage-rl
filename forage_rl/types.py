@@ -1,27 +1,14 @@
-"""Type definitions for reinforcement learning transitions and trajectories.
+"""Type definitions for reinforcement learning transitions and run datasets."""
 
-This module defines the core data structures used to represent state transitions
-and trajectories in reinforcement learning environments.
-"""
-
+from collections.abc import Iterator
 from typing import Generic, TypeVar
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Transition(BaseModel):
-    """A single state transition in a reinforcement learning environment.
-
-    Represents the standard (s, a, r, s') tuple from RL theory, capturing one
-    step of interaction between an agent and environment.
-
-    Attributes:
-        state: The state the agent was in before taking the action.
-        action: The action taken by the agent.
-        reward: The reward received after taking the action.
-        next_state: The resulting state after the action was taken.
-    """
+    """A single state transition in a reinforcement learning environment."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -32,36 +19,22 @@ class Transition(BaseModel):
 
     def __iter__(self):
         """Iterate over field values in definition order."""
-        for name in self.model_fields:
+        for name in type(self).model_fields:
             yield getattr(self, name)
 
 
 class TimedTransition(Transition):
-    """A transition that includes the time spent in the state.
-
-    Extends Transition with temporal information, useful for environments
-    where actions have variable durations (e.g., foraging tasks where
-    different actions take different amounts of time).
-
-    Attributes:
-        time_spent: The number of time steps spent on this transition.
-    """
+    """A transition that includes the time spent in the state."""
 
     time_spent: int
 
     @classmethod
     def from_transition_time(
-        cls, transition: Transition, time: int
+        cls,
+        transition: Transition,
+        time: int,
     ) -> "TimedTransition":
-        """Create a TimedTransition from a Transition and time value.
-
-        Args:
-            transition: The base transition to extend.
-            time: The time spent on this transition.
-
-        Returns:
-            A new TimedTransition with all fields from the original plus time_spent.
-        """
+        """Create a timed transition from a base transition and elapsed time."""
         return cls(
             state=transition.state,
             action=transition.action,
@@ -75,49 +48,79 @@ T = TypeVar("T", bound=Transition)
 
 
 class Trajectory(BaseModel, Generic[T]):
-    """A sequence of transitions forming a complete episode or path.
-
-    Generic over the transition type, allowing use with Transition,
-    TimedTransition, or custom transition subclasses.
-
-    Provides utilities for converting between object representation and numpy
-    arrays, which is useful for batch processing and storage.
-
-    Attributes:
-        transitions: The ordered list of transitions in this trajectory.
-    """
+    """A single episode represented as an ordered list of transitions."""
 
     transitions: list[T]
 
+    @model_validator(mode="after")
+    def validate_non_empty(self) -> "Trajectory[T]":
+        """Reject empty trajectories so one trajectory always means one episode."""
+        if not self.transitions:
+            raise ValueError("Trajectory must contain at least one transition.")
+        return self
+
     @classmethod
     def from_numpy(cls, arr: np.ndarray, transition_cls: type[T]) -> "Trajectory[T]":
-        """Create a Trajectory from a numpy array.
-
-        Args:
-            arr: A 2D array where each row is a transition and columns
-                correspond to the fields in order.
-            transition_cls: The transition class to instantiate for each row.
-
-        Returns:
-            A Trajectory containing the transitions from the array.
-        """
+        """Create a single-episode trajectory from a 2D numpy array."""
         fields = list(transition_cls.model_fields.keys())
         transitions = [transition_cls(**dict(zip(fields, row))) for row in arr]
         return cls(transitions=transitions)
 
     def to_numpy(self) -> np.ndarray:
-        """Convert this trajectory to a numpy array.
-
-        Returns:
-            A 2D array where each row is a transition and columns correspond
-            to the fields in order.
-        """
+        """Convert this trajectory to a 2D numpy array."""
         return np.array([list(t) for t in self.transitions])
 
     def __iter__(self):
-        """Iterate over the transitions in this trajectory."""
+        """Iterate over transitions in this single episode."""
         return iter(self.transitions)
 
     def __len__(self):
-        """Return the number of transitions in this trajectory."""
+        """Return the number of transitions in this episode."""
         return len(self.transitions)
+
+    def transition_cls(self) -> type[T]:
+        """Return the transition class carried by this episode."""
+        return type(self.transitions[0])
+
+
+class RunDataset(BaseModel, Generic[T]):
+    """A training run represented as an ordered list of episode trajectories."""
+
+    trajectories: list[Trajectory[T]]
+
+    @model_validator(mode="after")
+    def validate_non_empty(self) -> "RunDataset[T]":
+        """Reject empty run datasets and mixed transition classes."""
+        if not self.trajectories:
+            raise ValueError("RunDataset must contain at least one trajectory.")
+
+        first_cls = self.trajectories[0].transition_cls()
+        for trajectory in self.trajectories[1:]:
+            if trajectory.transition_cls() is not first_cls:
+                raise ValueError("RunDataset trajectories must share one transition type.")
+        return self
+
+    def __iter__(self) -> Iterator[Trajectory[T]]:
+        """Iterate over episode trajectories in this run."""
+        return iter(self.trajectories)
+
+    def __len__(self) -> int:
+        """Return the number of episodes in this run."""
+        return len(self.trajectories)
+
+    def num_episodes(self) -> int:
+        """Return the number of episodes in this run."""
+        return len(self.trajectories)
+
+    def num_transitions(self) -> int:
+        """Return the total number of transitions across all episodes."""
+        return sum(len(trajectory) for trajectory in self.trajectories)
+
+    def iter_transitions(self) -> Iterator[T]:
+        """Yield transitions across all episodes in order."""
+        for trajectory in self.trajectories:
+            yield from trajectory
+
+    def transition_cls(self) -> type[T]:
+        """Return the transition class used by all episodes in this run."""
+        return self.trajectories[0].transition_cls()
