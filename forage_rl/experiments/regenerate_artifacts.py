@@ -9,7 +9,11 @@ from forage_rl.config import DefaultParams
 from forage_rl.experiments.generate_trajectories import run_generation_experiment
 from forage_rl.experiments.model_inference import run_inference_experiment
 from forage_rl.experiments.train_pretrained_agents import train_pretrained_agents
-from forage_rl.visualization.plots import plot_aggregate_comparison, plot_aggregate_trajectory_stats
+from forage_rl.visualization.plots import (
+    plot_aggregate_comparison,
+    plot_aggregate_trajectory_stats,
+    plot_episode_return_comparison,
+)
 
 
 def _default_sources() -> list[Agent]:
@@ -123,6 +127,12 @@ def regenerate_artifacts(
             )
 
         if not skip_figures:
+            plot_episode_return_comparison(
+                maze_name=maze_name,
+                observable=observable,
+                save=True,
+                show=False,
+            )
             for source in source_agents:
                 plot_aggregate_trajectory_stats(
                     source,

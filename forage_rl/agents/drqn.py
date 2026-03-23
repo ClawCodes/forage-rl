@@ -74,6 +74,8 @@ class DRQNAgent(NeuralAgentBase):
         self,
         state: int,
         time_spent: int,
+        prev_action: int | None,
+        prev_reward: float,
         action: int,
         reward: float,
         next_state: int,
@@ -84,6 +86,8 @@ class DRQNAgent(NeuralAgentBase):
             {
                 "state": int(state),
                 "time_spent": int(time_spent),
+                "prev_action": None if prev_action is None else int(prev_action),
+                "prev_reward": float(prev_reward),
                 "action": int(action),
                 "reward": float(reward),
                 "next_state": int(next_state),
@@ -154,10 +158,14 @@ class DRQNAgent(NeuralAgentBase):
                 features[row_index, step_index] = self.encode_feature_tensor(
                     int(item["state"]),
                     int(item["time_spent"]),
+                    prev_action=item["prev_action"],
+                    prev_reward=float(item["prev_reward"]),
                 )
                 next_features[row_index, step_index] = self.encode_feature_tensor(
                     int(item["next_state"]),
                     int(item["next_time_spent"]),
+                    prev_action=int(item["action"]),
+                    prev_reward=float(item["reward"]),
                 )
                 actions[row_index, step_index] = int(item["action"])
                 rewards[row_index, step_index] = float(item["reward"])
@@ -193,9 +201,20 @@ class DRQNAgent(NeuralAgentBase):
         self.clip_gradients()
         self.optimizer.step()
 
-    def choose_action(self, state: int, time_spent: int) -> int:
+    def choose_action(
+        self,
+        state: int,
+        time_spent: int,
+        prev_action: int | None = None,
+        prev_reward: float = 0.0,
+    ) -> int:
         """Choose an action using the recurrent policy state."""
-        feature = self.encode_feature_tensor(state, time_spent)
+        feature = self.encode_feature_tensor(
+            state,
+            time_spent,
+            prev_action=prev_action,
+            prev_reward=prev_reward,
+        )
         q_values, self.hidden = self.q_values_for_feature(feature, self.hidden)
         action, _ = self.action_from_q_values(q_values)
         return action
@@ -206,9 +225,15 @@ class DRQNAgent(NeuralAgentBase):
 
         self.hidden = None
         self.current_episode = []
+        context = self.initial_context()
         for step_index, transition in enumerate(trajectory.transitions):
             time_spent = getattr(transition, "time_spent", 0)
-            feature = self.encode_feature_tensor(transition.state, time_spent)
+            feature = self.encode_feature_tensor(
+                transition.state,
+                time_spent,
+                prev_action=context["prev_action"],
+                prev_reward=context["prev_reward"],
+            )
             q_values, self.hidden = self.q_values_for_feature(feature, self.hidden)
             action_probs = self.boltzmann_action_probs(q_values.detach().cpu().numpy())
             log_likelihoods.append(float(np.log(action_probs[transition.action])))
@@ -221,6 +246,8 @@ class DRQNAgent(NeuralAgentBase):
             self._store_step(
                 transition.state,
                 time_spent,
+                context["prev_action"],
+                context["prev_reward"],
                 transition.action,
                 transition.reward,
                 transition.next_state,
@@ -230,6 +257,7 @@ class DRQNAgent(NeuralAgentBase):
             self.training_steps += 1
             self._train_from_replay()
             self.maybe_sync_target_network()
+            context = self.next_context(transition.action, transition.reward)
 
         self._finalize_episode()
 
@@ -244,11 +272,17 @@ class DRQNAgent(NeuralAgentBase):
             self.hidden = None
             self.current_episode = []
             time_spent = 0
+            context = self.initial_context()
             done = False
             episode_transitions: list[TimedTransition] = []
 
             while not done:
-                action = self.choose_action(state, time_spent)
+                action = self.choose_action(
+                    state,
+                    time_spent,
+                    prev_action=context["prev_action"],
+                    prev_reward=context["prev_reward"],
+                )
                 transition, done = self.maze.step_transition(action)
                 timed_transition = TimedTransition.from_transition_time(
                     transition,
@@ -264,6 +298,8 @@ class DRQNAgent(NeuralAgentBase):
                 self._store_step(
                     timed_transition.state,
                     time_spent,
+                    context["prev_action"],
+                    context["prev_reward"],
                     timed_transition.action,
                     timed_transition.reward,
                     timed_transition.next_state,
@@ -276,6 +312,10 @@ class DRQNAgent(NeuralAgentBase):
 
                 state = timed_transition.next_state
                 time_spent = next_time_spent
+                context = self.next_context(
+                    timed_transition.action,
+                    timed_transition.reward,
+                )
 
             self._finalize_episode()
             trajectories.append(Trajectory(transitions=episode_transitions))

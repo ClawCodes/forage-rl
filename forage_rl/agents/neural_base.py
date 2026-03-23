@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
 
@@ -17,12 +17,24 @@ from forage_rl.utils.torch_support import require_torch, resolve_device
 
 if TYPE_CHECKING:
     from forage_rl.environments import Maze
+    from forage_rl.types import Trajectory
+
+
+class NeuralContext(TypedDict):
+    prev_action: int | None
+    prev_reward: float
 
 
 class NeuralAgentBase(BaseAgent):
     """Shared PyTorch-backed logic for neural agents."""
 
     agent_name: Agent
+    feature_schema_components = (
+        "observation_one_hot",
+        "normalized_time_spent",
+        "prev_reward",
+        "prev_action_one_hot",
+    )
 
     def __init__(
         self,
@@ -55,7 +67,8 @@ class NeuralAgentBase(BaseAgent):
         self.init_mode = init_mode
         self.device = resolve_device(device)
         self.obs_dim = maze.observation_space.n  # type: ignore[attr-defined]
-        self.feature_dim = self.obs_dim + 1
+        self.feature_schema_version = DefaultParams.NEURAL_FEATURE_SCHEMA_VERSION
+        self.feature_dim = self.obs_dim + 1 + 1 + self.maze.num_actions
         self.training_steps = 0
 
         self.torch = require_torch()
@@ -91,13 +104,91 @@ class NeuralAgentBase(BaseAgent):
         observable = not isinstance(self.maze, MazePOMDP)
         return checkpoint_path(self.agent_name, maze_name, observable)
 
-    def encode_feature_tensor(self, state: int, time_spent: int):
-        """Encode an observation and elapsed time into a network input tensor."""
+    def _encode_prev_action(self, prev_action: int | None) -> np.ndarray:
+        """Encode the previous action as a one-hot vector or zeros at episode start."""
+        action_feature = np.zeros(self.maze.num_actions, dtype=np.float32)
+        if prev_action is None:
+            return action_feature
+        action_feature[int(prev_action)] = 1.0
+        return action_feature
+
+    def encode_feature_array(
+        self,
+        state: int,
+        time_spent: int,
+        prev_action: int | None = None,
+        prev_reward: float = 0.0,
+    ) -> np.ndarray:
+        """Encode the full neural-agent context into a feature array."""
         feature = np.zeros(self.feature_dim, dtype=np.float32)
         feature[int(state)] = 1.0
         horizon = max(self.maze.horizon - 1, 1)
-        feature[-1] = float(min(time_spent, self.maze.horizon - 1)) / float(horizon)
+        feature[self.obs_dim] = float(min(time_spent, self.maze.horizon - 1)) / float(
+            horizon
+        )
+        feature[self.obs_dim + 1] = float(prev_reward)
+        feature[self.obs_dim + 2 :] = self._encode_prev_action(prev_action)
+        return feature
+
+    def encode_feature_tensor(
+        self,
+        state: int,
+        time_spent: int,
+        prev_action: int | None = None,
+        prev_reward: float = 0.0,
+    ):
+        """Encode an observation and context into a network input tensor."""
+        feature = self.encode_feature_array(
+            state,
+            time_spent,
+            prev_action=prev_action,
+            prev_reward=prev_reward,
+        )
         return self.torch.tensor(feature, device=self.torch_device)
+
+    def initial_context(self) -> NeuralContext:
+        """Return the deterministic episode-start context."""
+        return {"prev_action": None, "prev_reward": 0.0}
+
+    def next_context(self, action: int, reward: float) -> NeuralContext:
+        """Return the context that should be used on the next decision step."""
+        return {"prev_action": int(action), "prev_reward": float(reward)}
+
+    def feature_schema_metadata(self) -> dict[str, object]:
+        """Return metadata describing the current neural input schema."""
+        return {
+            "feature_schema_version": int(self.feature_schema_version),
+            "feature_dim": int(self.feature_dim),
+            "feature_components": list(self.feature_schema_components),
+        }
+
+    def context_trace(self, trajectory: "Trajectory") -> list[dict[str, object]]:
+        """Return the exact per-step context features used for one episode."""
+        rows: list[dict[str, object]] = []
+        context = self.initial_context()
+        for step_index, transition in enumerate(trajectory.transitions):
+            time_spent = getattr(transition, "time_spent", 0)
+            encoded_feature = self.encode_feature_array(
+                transition.state,
+                time_spent,
+                prev_action=context["prev_action"],
+                prev_reward=context["prev_reward"],
+            )
+            rows.append(
+                {
+                    "step_index": step_index,
+                    "state": int(transition.state),
+                    "time_spent": int(time_spent),
+                    "prev_action": context["prev_action"],
+                    "prev_reward": float(context["prev_reward"]),
+                    "action": int(transition.action),
+                    "reward": float(transition.reward),
+                    "next_state": int(transition.next_state),
+                    "encoded_feature": encoded_feature,
+                }
+            )
+            context = self.next_context(transition.action, transition.reward)
+        return rows
 
     def sync_target_network(self) -> None:
         """Copy online-network weights into the target network."""
@@ -130,7 +221,32 @@ class NeuralAgentBase(BaseAgent):
 
     def load_checkpoint(self, path: Path) -> None:
         """Load a pretrained checkpoint into the online and target networks."""
-        checkpoint = self.torch.load(path, map_location=self.torch_device)
+        checkpoint = self.torch.load(
+            path,
+            map_location=self.torch_device,
+            weights_only=False,
+        )
+        schema_version = checkpoint.get("feature_schema_version")
+        feature_dim = checkpoint.get("feature_dim")
+        feature_components = checkpoint.get("feature_components")
+        if schema_version is None:
+            raise ValueError(
+                f"Legacy checkpoint at {path} is incompatible with the current neural "
+                "feature schema. Retrain pretrained DQN/DRQN checkpoints with "
+                "`python -m forage_rl.experiments.train_pretrained_agents`."
+            )
+        if (
+            int(schema_version) != self.feature_schema_version
+            or int(feature_dim) != self.feature_dim
+            or list(feature_components) != list(self.feature_schema_components)
+        ):
+            raise ValueError(
+                f"Checkpoint at {path} uses neural feature schema "
+                f"(version={schema_version}, feature_dim={feature_dim}, "
+                f"components={feature_components}) but this agent expects "
+                f"{self.feature_schema_metadata()}. Retrain pretrained DQN/DRQN "
+                "checkpoints with the current code."
+            )
         self.q_network.load_state_dict(checkpoint["model_state_dict"])
         self.target_network.load_state_dict(checkpoint["target_model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -145,6 +261,7 @@ class NeuralAgentBase(BaseAgent):
                 "target_model_state_dict": self.target_network.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
                 "training_steps": self.training_steps,
+                **self.feature_schema_metadata(),
             },
             path,
         )

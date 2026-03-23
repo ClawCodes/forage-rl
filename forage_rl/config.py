@@ -44,6 +44,7 @@ class DefaultParams:
     MAX_TIME_SPENT = 10
 
     # Neural agent parameters
+    NEURAL_FEATURE_SCHEMA_VERSION = 2
     LEARNING_RATE = 1e-3
     REPLAY_CAPACITY = 4096
     BATCH_SIZE = 64

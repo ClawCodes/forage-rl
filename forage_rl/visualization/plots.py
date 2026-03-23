@@ -6,6 +6,8 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 
+from forage_rl import RunDataset, Trajectory
+from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.registry import Agent
 from forage_rl.config import FIGURES_DIR, ensure_directories
@@ -103,6 +105,9 @@ def plot_cumulative_sum_accuracy(
         f"Classification Accuracy over Sample Size (Trajectory source: {source.value})",
         fontsize=16,
     )
+    note = _setting_note(maze_name, observable)
+    if note is not None:
+        _add_figure_notes(fig, [note])
 
     plt.tight_layout()
 
@@ -453,10 +458,13 @@ def plot_trajectory_stats(
 def _draw_mean_cumulative_reward(
     ax: plt.Axes,
     reward_sequences: list[np.ndarray],
+    *,
+    axis_label: str = "Transition Across Run",
+    sample_label: str = "runs",
+    single_label: str = "Run",
 ) -> None:
-    """Draw cumulative reward summary across episode-level reward sequences."""
+    """Draw cumulative reward summary across aligned reward sequences."""
     cumsums = [np.cumsum(rewards) for rewards in reward_sequences]
-<<<<<<< HEAD
     min_len = min(len(c) for c in cumsums)
     arr = np.array([c[:min_len] for c in cumsums])  # (n_runs, min_len)
     mean = arr.mean(axis=0)
@@ -467,35 +475,65 @@ def _draw_mean_cumulative_reward(
         x, mean - std, mean + std, alpha=0.3, color="#2ecc71", label="±1 SD"
     )
     ax.set_xlabel("Transition", fontsize=12)
-=======
-    min_len = min(len(cumsum) for cumsum in cumsums)
-    arr = np.array([cumsum[:min_len] for cumsum in cumsums])
-    mean = arr.mean(axis=0)
-    x = np.arange(min_len)
-
-    if len(reward_sequences) == 1:
-        ax.plot(x, mean, linewidth=2, color="#2ecc71", label="Episode")
-        ax.set_title("Cumulative Reward (single episode)", fontsize=14)
-    else:
-        std = arr.std(axis=0)
-        ax.plot(x, mean, linewidth=2, color="#2ecc71", label="Mean")
-        ax.fill_between(
-            x,
-            mean - std,
-            mean + std,
-            alpha=0.3,
-            color="#2ecc71",
-            label="±1 SD",
-        )
-        ax.set_title(
-            f"Mean Cumulative Reward (episodes={len(reward_sequences)})",
-            fontsize=14,
-        )
-
-    ax.set_xlabel("Transition Within Episode", fontsize=12)
->>>>>>> b83a7d1 (update)
     ax.set_ylabel("Cumulative Reward", fontsize=12)
     ax.legend(fontsize=10)
+
+
+def _count_label(values: list[int]) -> str:
+    """Format an integer count or count range for figure titles."""
+    if not values:
+        return "0"
+
+    unique_values = sorted(set(values))
+    if len(unique_values) == 1:
+        return str(unique_values[0])
+    return f"{unique_values[0]}-{unique_values[-1]}"
+
+
+def _setting_note(maze_name: str, observable: bool) -> Optional[str]:
+    """Return a note for settings whose observability variants are redundant."""
+    if maze_name == "simple" and not observable:
+        return (
+            "Note: simple/PO is equivalent to simple/FO for this spec because each "
+            "observation group maps to one true state."
+        )
+    return None
+
+
+def _add_figure_notes(fig: plt.Figure, notes: list[str]) -> None:
+    """Render footnotes at the bottom of a figure."""
+    for index, note in enumerate(note for note in notes if note):
+        fig.text(
+            0.5,
+            0.01 + (0.03 * index),
+            note,
+            ha="center",
+            fontsize=10,
+            color="#7f8c8d",
+        )
+
+
+def _run_level_sequences(
+    run_datasets: list[RunDataset],
+) -> tuple[list[np.ndarray], list[np.ndarray], list[int], list[int]]:
+    """Flatten each run dataset into one reward/state sequence in episode order."""
+    reward_sequences: list[np.ndarray] = []
+    state_sequences: list[np.ndarray] = []
+    episode_counts: list[int] = []
+    transition_counts: list[int] = []
+
+    for run_dataset in run_datasets:
+        transitions = list(run_dataset.iter_transitions())
+        reward_sequences.append(
+            np.array([transition.reward for transition in transitions], dtype=float)
+        )
+        state_sequences.append(
+            np.array([transition.state for transition in transitions], dtype=int)
+        )
+        episode_counts.append(run_dataset.num_episodes())
+        transition_counts.append(run_dataset.num_transitions())
+
+    return reward_sequences, state_sequences, episode_counts, transition_counts
 
 
 def _patch_state_indices(maze: Maze) -> tuple[np.ndarray, np.ndarray]:
@@ -662,12 +700,26 @@ def _occupancy_plot_metadata(
     )
 
 
+def _modal_residency_axis_metadata(
+    maze: MazeMDP,
+) -> tuple[list[int], list[str], str]:
+    """Return y-axis ids, labels, and title base for run-level modal residency."""
+    domain_ids, labels, _, title_base = _occupancy_plot_metadata(maze)
+    if isinstance(maze, MazePOMDP):
+        title = (
+            "Observed Modal Residency Location"
+            if title_base == "Observed Patch Occupancy"
+            else "Observation-Group Modal Residency Location"
+        )
+        return domain_ids, labels, title
+    return domain_ids, labels, "Modal Residency Location"
+
+
 def _draw_residency_fractions(
     ax: plt.Axes,
     state_sequences: list[np.ndarray],
     maze: MazeMDP,
 ) -> None:
-<<<<<<< HEAD
     """Draw the modal (most frequent) location at each time step across runs.
 
     Marker size is proportional to the fraction of runs in the modal bin.
@@ -707,37 +759,12 @@ def _draw_residency_fractions(
     ax.set_title(f"Modal Residency Location (n={len(state_sequences)})", fontsize=14)
 
 
-=======
-    """Draw occupancy fraction at each timestep across the plotted domain."""
-    domain_ids, labels, colors, title_base = _occupancy_plot_metadata(maze)
-    occupancy = _occupancy_fractions(state_sequences, domain_ids)
-    x = np.arange(occupancy.shape[1])
-    for state, series in enumerate(occupancy):
-        ax.plot(
-            x,
-            series,
-            linewidth=2.0,
-            color=colors[state],
-            label=labels[state],
-        )
-    ax.set_ylim(0.0, 1.0)
-    ax.set_xlabel("Transition Within Episode", fontsize=12)
-    ax.set_ylabel("Fraction of Episodes", fontsize=12)
-    if len(state_sequences) == 1:
-        title = f"{title_base} (single episode)"
-        ax.set_title(title, fontsize=14)
-    else:
-        ax.set_title(f"{title_base} Fraction (episodes={len(state_sequences)})", fontsize=14)
-    ax.legend(fontsize=9, ncol=2 if len(domain_ids) > 3 else 1)
-
-
->>>>>>> b83a7d1 (update)
 def plot_mean_cumulative_reward(
     reward_sequences: list[np.ndarray],
     save: bool = False,
     show: bool = True,
 ):
-    """Plot cumulative reward summary across episode-level sequences."""
+    """Plot cumulative reward summary across aligned reward sequences."""
     fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
     _draw_mean_cumulative_reward(ax, reward_sequences)
     if save:
@@ -756,7 +783,7 @@ def plot_modal_residency(
     save: bool = False,
     show: bool = True,
 ):
-    """Plot per-state occupancy fraction across episode-level sequences."""
+    """Plot per-state occupancy fraction across aligned sequences."""
     fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
     _draw_residency_fractions(ax, state_sequences, maze)
     if save:
@@ -777,53 +804,72 @@ def plot_mean_trajectory_stats(
     save: bool = False,
     show: bool = True,
     run_count: Optional[int] = None,
+    episodes_per_run: str | int | None = None,
+    transitions_per_run: str | int | None = None,
+    setting_note: Optional[str] = None,
 ):
-    """High-level overview aggregated across episode trajectories."""
+    """High-level overview aggregated across run-level trajectories."""
     fig, (ax_reward, ax_residency) = plt.subplots(
         1, 2, figsize=(14, 5), constrained_layout=True
+    )
+    resolved_run_count = run_count if run_count is not None else len(reward_sequences)
+    resolved_episode_label = (
+        str(episodes_per_run) if episodes_per_run is not None else "1"
+    )
+    resolved_transition_label = (
+        str(transitions_per_run)
+        if transitions_per_run is not None
+        else _count_label([len(sequence) for sequence in reward_sequences])
+    )
+    resolved_setting_note = setting_note or _setting_note(
+        maze.maze_spec.maze.name,
+        not isinstance(maze, MazePOMDP),
     )
 
     if not reward_sequences or not state_sequences:
         ax_reward.text(0.5, 0.5, "No episode data", ha="center", va="center")
         ax_residency.text(0.5, 0.5, "No episode data", ha="center", va="center")
         fig.suptitle(
-            f"Aggregate Trajectory Overview: '{source}' (episodes=0, runs={run_count or 0})",
+            "Aggregate Trajectory Overview: "
+            f"'{source}' (runs={resolved_run_count}, episodes_per_run=0, transitions_per_run=0)",
             fontsize=16,
             fontweight="bold",
         )
+        notes: list[str] = []
+        if resolved_setting_note is not None:
+            notes.append(resolved_setting_note)
+        _add_figure_notes(fig, notes)
         if show:
             plt.show()
+        elif save:
+            plt.close(fig)
         return fig
 
-    _draw_mean_cumulative_reward(ax_reward, reward_sequences)
-    _draw_residency_fractions(ax_residency, state_sequences, maze)
+    _draw_mean_cumulative_reward(
+        ax_reward,
+        reward_sequences,
+        axis_label="Transition Across Run",
+        sample_label="runs",
+        single_label="Run",
+    )
+    _draw_modal_residency(ax_residency, state_sequences, maze)
 
-    episode_count = len(reward_sequences)
-    resolved_run_count = run_count if run_count is not None else episode_count
-    if episode_count == 1:
-        title = (
-            f"Trajectory Overview: '{source}' (episodes={episode_count}, runs={resolved_run_count})"
-        )
-    else:
-        title = (
-            f"Aggregate Trajectory Overview: '{source}' "
-            f"(episodes={episode_count}, runs={resolved_run_count})"
-        )
+    title_prefix = (
+        "Trajectory Overview" if resolved_run_count == 1 else "Aggregate Trajectory Overview"
+    )
+    title = (
+        f"{title_prefix}: '{source}' "
+        f"(runs={resolved_run_count}, episodes_per_run={resolved_episode_label}, "
+        f"transitions_per_run={resolved_transition_label})"
+    )
     fig.suptitle(title, fontsize=16, fontweight="bold")
 
-    fig.text(
-        0.5,
-        0.01,
-        "Episode-aligned summary: episodes are aligned by within-episode "
-        "timestep; x-axis spans the episode horizon, not total transitions "
-        "across all episodes.",
-        ha="center",
-        fontsize=10,
-        color="#7f8c8d",
-    )
-    note = _low_sample_note(resolved_run_count, episode_count)
-    if note is not None:
-        fig.text(0.5, 0.04, note, ha="center", fontsize=10, color="#7f8c8d")
+    notes: list[str] = []
+    if resolved_setting_note is not None:
+        notes.append(resolved_setting_note)
+    if resolved_run_count < 2:
+        notes.append(f"Low sample size (runs={resolved_run_count})")
+    _add_figure_notes(fig, notes)
 
     if save:
         ensure_directories()
@@ -848,21 +894,17 @@ def plot_aggregate_trajectory_stats(
     save: bool = True,
     show: bool = True,
 ) -> None:
-    """Load saved run datasets for source and plot episode-level trajectory stats."""
+    """Load saved run datasets for source and plot run-level trajectory stats."""
     run_ids = list_run_dataset_run_ids(source, maze_name, observable)
     run_datasets = [
         load_run_dataset(source, run_id, maze_name, observable) for run_id in run_ids
     ]
-    reward_sequences = [
-        np.array([transition.reward for transition in trajectory.transitions])
-        for run_dataset in run_datasets
-        for trajectory in run_dataset.trajectories
-    ]
-    state_sequences = [
-        np.array([transition.state for transition in trajectory.transitions])
-        for run_dataset in run_datasets
-        for trajectory in run_dataset.trajectories
-    ]
+    (
+        reward_sequences,
+        state_sequences,
+        episode_counts,
+        transition_counts,
+    ) = _run_level_sequences(run_datasets)
     maze = maze_from_builtin_maze_spec(maze_name, observable)
     plot_mean_trajectory_stats(
         reward_sequences,
@@ -872,8 +914,10 @@ def plot_aggregate_trajectory_stats(
         save=save,
         show=show,
         run_count=len(run_ids),
+        episodes_per_run=_count_label(episode_counts),
+        transitions_per_run=_count_label(transition_counts),
+        setting_note=_setting_note(maze_name, observable),
     )
-<<<<<<< HEAD
 
 
 def plot_aggregate_comparison(
@@ -985,83 +1029,3 @@ if __name__ == "__main__":
     # plot_aggregate_comparison(
     #     Agent.QLearning, [Agent.MBRL], maze_name="full", observable=False, save=True
     # )
-=======
-
-
-def plot_aggregate_comparison(
-    source: Agent,
-    compare_to: list[EvaluatorInput],
-    maze_name: str = "simple",
-    num_datasets: Optional[int] = None,
-    observable: bool = True,
-    save: bool = False,
-    show: bool = True,
-):
-    """Plot a 2-panel source-centric comparison figure for source vs evaluators."""
-    fig, (ax_bars, ax_lines) = plt.subplots(
-        1, 2, figsize=(18, 6), constrained_layout=True
-    )
-
-    run_count = _draw_model_accuracies(
-        ax_bars, source, compare_to, maze_name, num_datasets, observable
-    )
-    _draw_running_win_rate(
-        ax_lines, source, compare_to, maze_name, num_datasets, observable
-    )
-
-    title = (
-        "Source-Centric Model Comparison on Saved Source Trajectories\n"
-        f"{_source_policy_description(source)}"
-    )
-    note = f"Low sample size (runs={run_count})" if run_count < 2 else None
-    if note is not None:
-        title = f"{title}\n{note}"
-    fig.suptitle(title, fontsize=16, fontweight="bold")
-
-    if save:
-        ensure_directories()
-        comparisons = "_".join(_filename_label(evaluator) for evaluator in compare_to)
-        obs_tag = "FO" if observable else "PO"
-        filepath = (
-            FIGURES_DIR
-            / f"agg_compare_{source.value}_to_{comparisons}_{maze_name}_{obs_tag}.png"
-        )
-        plt.savefig(filepath, dpi=150)
-        print(f"Saved to {filepath}")
-
-    if show:
-        plt.show()
-    elif save:
-        plt.close(fig)
-
-    return fig
-
-
-if __name__ == "__main__":
-    mode_aware_evaluators: list[EvaluatorInput] = [
-        Agent.MBRL,
-        Agent.QLearning,
-        EvaluatorSpec(agent=Agent.DQN, mode="fresh"),
-        EvaluatorSpec(agent=Agent.DQN, mode="pretrained"),
-        EvaluatorSpec(agent=Agent.DRQN, mode="fresh"),
-        EvaluatorSpec(agent=Agent.DRQN, mode="pretrained"),
-    ]
-
-    for source_agent in [Agent.MBRL, Agent.QLearning, Agent.DQN, Agent.DRQN]:
-        for maze_name in ["simple", "full"]:
-            for observable in [True, False]:
-                plot_aggregate_trajectory_stats(
-                    source_agent,
-                    maze_name=maze_name,
-                    observable=observable,
-                    save=True,
-                )
-                plot_aggregate_comparison(
-                    source_agent,
-                    mode_aware_evaluators,
-                    maze_name=maze_name,
-                    observable=observable,
-                    save=True,
-                    show=False,
-                )
->>>>>>> b83a7d1 (update)

@@ -60,6 +60,7 @@ def train_pretrained_agents(
             "device": agent.device,
             "num_episodes": num_episodes,
             "num_transitions": run_dataset.num_transitions(),
+            **agent.feature_schema_metadata(),
             "hyperparameters": {
                 "alpha": agent.alpha,
                 "gamma": agent.gamma,
