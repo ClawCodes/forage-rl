@@ -6,7 +6,6 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 
-from forage_rl.agents import QLearning
 from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.registry import Agent
 from forage_rl.config import FIGURES_DIR, ensure_directories
@@ -281,14 +280,16 @@ def plot_q_values_with_time(
     maze = q_agent.maze
     num_states = maze.num_states
 
-    max_time = min(max_time_to_display, q_table.shape[1])
+    max_time = min(max_time_to_display, q_table.horizon)
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    vmin = np.min(q_table[:, :max_time, :])
-    vmax = np.max(q_table[:, :max_time, :])
+    q_array = q_table.to_array()
+    horizon_vals = q_array[:, :max_time, :]
+    vmin = np.min(horizon_vals)
+    vmax = np.max(horizon_vals)
 
     for i, action in enumerate(range(maze.num_actions)):
-        im = axes[i].imshow(q_table[:, :max_time, action], vmin=vmin, vmax=vmax)
+        im = axes[i].imshow(q_array[:, :max_time, action], vmin=vmin, vmax=vmax)
         axes[i].set_title(f"Q-values for Action {action} ({maze.get_action_label(i)})")
         axes[i].set_xlabel("Time Spent")
         axes[i].set_ylabel("States")
@@ -302,7 +303,7 @@ def plot_q_values_with_time(
         # Annotate cells
         for y in range(num_states):
             for x in range(max_time):
-                value = q_table[y, x, action]
+                value = q_array[y, x, action]
                 color = (
                     "w"
                     if (vmax - vmin) > 0 and (value - vmin) / (vmax - vmin) > 0.5
@@ -343,7 +344,7 @@ def plot_q_values(q_agent: BaseAgent, show: bool = True):
         show: Whether to display the figure
     """
     fig, ax = plt.subplots(figsize=(6, 4))
-    im = ax.imshow(q_agent.q_table)
+    im = ax.imshow(q_agent.q_table.to_array())
     maze = q_agent.maze
     ax.set_title("Q-values")
     ax.set_xlabel("Actions")
@@ -356,41 +357,6 @@ def plot_q_values(q_agent: BaseAgent, show: bool = True):
     )
     plt.colorbar(im, ax=ax)
     plt.tight_layout()
-    if show:
-        plt.show()
-    return fig
-
-
-def plot_q_history(q_agent: QLearning, show: bool = True):
-    """Plot Q-value history over training episodes."""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    maze = q_agent.maze
-    labels = [
-        f"S{s} {'Stay' if a == 0 else 'Leave'}"
-        for s in range(maze.num_states)
-        for a in range(maze.num_actions)
-    ]
-
-    for i, history in enumerate(q_agent.q_history):
-        if history:
-            ax.plot(history, label=labels[i])
-
-    ax.set_title("Q-values over time")
-    ax.set_xlabel("Episode")
-    ax.set_ylabel("Q-value")
-    ax.legend()
-    if show:
-        plt.show()
-    return fig
-
-
-def plot_returns(q_agent: QLearning, show: bool = True):
-    """Plot total reward over training episodes."""
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(q_agent.returns)
-    ax.set_title("Returns over episodes")
-    ax.set_xlabel("Episode")
-    ax.set_ylabel("Return")
     if show:
         plt.show()
     return fig

@@ -2,6 +2,7 @@
 
 import numpy as np
 from .base import BaseAgent
+from .q_table import QTable
 
 from forage_rl.config import DefaultParams
 from forage_rl import TimedTransition, Trajectory
@@ -29,34 +30,26 @@ class MBRL(BaseAgent):
         self.num_episodes = num_episodes
         self.gamma = gamma
         self.num_planning_steps = num_planning_steps
-        n = maze.observation_space.n  # type: ignore
-        self.q_table = np.zeros((n, maze.horizon, maze.num_actions))
-        self.r_table = np.zeros((n, maze.horizon, maze.num_actions))
-        self.count = np.zeros((n, maze.horizon, maze.num_actions))
+        self.q_table = QTable(maze, timed=True)
+        self.r_table = QTable(maze, timed=True)
+        self.count = QTable(maze, timed=True)
 
     def q_value_iteration(self):
         """Perform Q-value iteration using learned rewards and known transitions."""
         for _ in range(self.num_planning_steps):
             for s in range(self.maze.observation_space.n):  # type: ignore
                 for t in range(self.maze.horizon):
-                    for a in range(self.maze.num_actions):
-                        r_sa = self.r_table[s, t, a]
-
-                        if a == 0:  # Stay
-                            next_state = s
-                            next_time = min(t + 1, self.maze.horizon - 1)
-                        else:  # Leave - deterministic transition for SimpleMaze
-                            # TODO: only works for simple maze - move transition dynamics to maze and make general
-                            # stochastic transitions
-                            if s == 0:
-                                next_state = 1
-                            else:
-                                next_state = 0
-                            next_time = 0  # reset time when leaving
-
-                        self.q_table[s, t, a] = r_sa + self.gamma * np.max(
-                            self.q_table[next_state, next_time]
+                    for a in self.q_table.valid_actions(s):
+                        r_sa = self.r_table.get(s, a, t)
+                        next_q = sum(
+                            prob
+                            * self.q_table.max_value(
+                                ns,
+                                min(t + 1, self.maze.horizon - 1) if ns == s else 0,
+                            )
+                            for ns, prob in self.maze.transition_distribution(s, a)
                         )
+                        self.q_table.set(s, a, r_sa + self.gamma * next_q, t)
 
     def simulate(self, trajectory: Trajectory) -> list[float]:
         """
@@ -72,14 +65,17 @@ class MBRL(BaseAgent):
 
         for state, action, reward, next_state, time_spent in trajectory:
             # Compute log-likelihood under current policy
-            action_probs = self.boltzmann_action_probs(self.q_table[state, time_spent])
-            log_likelihoods.append(np.log(action_probs[action]))
+            ai = self.q_table.global_to_local(state, action)
+            action_probs = self.boltzmann_action_probs(
+                self.q_table.action_values(state, time_spent)
+            )
+            log_likelihoods.append(np.log(action_probs[ai]))
 
             # Update reward estimate with running average
-            self.count[state, time_spent, action] += 1
-            self.r_table[state, time_spent, action] += (
-                reward - self.r_table[state, time_spent, action]
-            ) / self.count[state, time_spent, action]
+            self.count.update(state, action, 1.0, time_spent)
+            n = self.count.get(state, action, time_spent)
+            delta = (reward - self.r_table.get(state, action, time_spent)) / n
+            self.r_table.update(state, action, delta, time_spent)
 
             # Perform planning
             self.q_value_iteration()
@@ -107,7 +103,10 @@ class MBRL(BaseAgent):
 
             while not done:
                 # Choose action using Boltzmann exploration
-                action = self.choose_action_boltzmann(self.q_table[state, time_spent])
+                local_idx = self.choose_action_boltzmann(
+                    self.q_table.action_values(state, time_spent)
+                )
+                action = self.q_table.local_to_global(state, local_idx)
                 transition, done = self.maze.step_transition(action)
 
                 timed_transition = TimedTransition.from_transition_time(
@@ -117,10 +116,13 @@ class MBRL(BaseAgent):
                 transitions.append(timed_transition)
 
                 # Update reward estimate
-                self.count[state, time_spent, action] += 1
-                self.r_table[state, time_spent, action] += (
-                    timed_transition.reward - self.r_table[state, time_spent, action]
-                ) / self.count[state, time_spent, action]
+                self.count.update(state, action, 1.0, time_spent)
+                n = self.count.get(state, action, time_spent)
+                delta = (
+                    timed_transition.reward
+                    - self.r_table.get(state, action, time_spent)
+                ) / n
+                self.r_table.update(state, action, delta, time_spent)
 
                 next_state = timed_transition.next_state
                 if state == next_state:
