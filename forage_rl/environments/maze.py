@@ -297,6 +297,23 @@ class MazePOMDP(Maze):
         done = terminated or truncated
         return transition, done
 
+    def obs_transition_distribution(
+        self, obs_group: int, action_idx: int
+    ) -> list[tuple[int, float]]:
+        """Return (next_obs_group, probability) marginalised over states in obs_group."""
+        states_in_group = [
+            s for s, g in self._state_to_observation_group.items() if g == obs_group
+        ]
+        weight = 1.0 / len(states_in_group)
+        next_obs_probs: dict[int, float] = {}
+        for s in states_in_group:
+            for next_state, prob in self.transition_distribution(s, action_idx):
+                next_obs = self._state_to_observation_group[next_state]
+                next_obs_probs[next_obs] = (
+                    next_obs_probs.get(next_obs, 0.0) + prob * weight
+                )
+        return sorted(next_obs_probs.items())
+
 
 def _simple_spec_from_decays(
     decays: list[float], horizon: int = DefaultParams.HORIZON

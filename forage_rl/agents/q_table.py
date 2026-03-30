@@ -3,6 +3,7 @@
 import numpy as np
 
 from forage_rl.environments import Maze
+from forage_rl.environments.maze import MazePOMDP
 
 
 class InvalidState(Exception):
@@ -35,14 +36,28 @@ class QTable:
         self.num_actions = maze.num_actions
 
         # {<state>: [<state action_1>,...,<state action_N>]}
-        self._valid_actions: dict[int, list[int]] = {
-            s: [
-                a
-                for a in range(maze.num_actions)
-                if (s, a) in maze._transitions_by_state_action
-            ]
-            for s in range(self.n_obs)
-        }
+        if isinstance(maze, MazePOMDP):
+            obs_to_rep: dict[int, int] = {}
+            for concrete_state, obs_group in maze._state_to_observation_group.items():
+                if obs_group not in obs_to_rep:
+                    obs_to_rep[obs_group] = concrete_state
+            self._valid_actions: dict[int, list[int]] = {
+                obs: [
+                    a
+                    for a in range(maze.num_actions)
+                    if (obs_to_rep[obs], a) in maze._transitions_by_state_action
+                ]
+                for obs in range(self.n_obs)
+            }
+        else:
+            self._valid_actions = {
+                s: [
+                    a
+                    for a in range(maze.num_actions)
+                    if (s, a) in maze._transitions_by_state_action
+                ]
+                for s in range(self.n_obs)
+            }
         # Lookup for action dimensions in self._valid_actions and self._data
         # {
         #   (<state>, <action_1>): <state action index 1>,
