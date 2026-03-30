@@ -134,5 +134,5 @@ def main():
 
     # Step 6 — Plot comparison
     plot_aggregate_comparison(
-        source, compare_to, maze_name, observable, save=True, show=False
+        source, compare_to, maze_name, observable=observable, save=True, show=False
     )
