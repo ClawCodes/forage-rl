@@ -57,7 +57,6 @@ label = "Corridor A"
 decay = 99.0
 observation_group = 2
 [states.6.transitions]
-stay = [[6, 1.0]]
 leave = [[3, 0.15], [4, 0.35], [5, 0.50]]
 
 [states.7]
@@ -65,5 +64,4 @@ label = "Corridor B"
 decay = 99.0
 observation_group = 3
 [states.7.transitions]
-stay = [[7, 1.0]]
 leave = [[0, 0.15], [1, 0.35], [2, 0.50]]
