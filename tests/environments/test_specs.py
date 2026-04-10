@@ -61,3 +61,11 @@ class TestSpecs:
             "next_state": 0,
             "prob": 1.0,
         }
+
+    def test_expand_compact_format_preserves_observation_labels(self):
+        with open(MAZE_SPECS_DIR / "simple.toml", "rb") as f:
+            raw_data = tomllib.load(f)
+
+        result = MazeSpec._expand_compact_format(raw_data)  # ty: ignore
+
+        assert result["maze"]["observation_labels"] == ["Upper Patch", "Lower Patch"]

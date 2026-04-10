@@ -3,6 +3,7 @@ name = "full_one_way"
 horizon = 100
 initial_state = 0
 action_labels = ["stay", "leave"]
+observation_labels = ["Upper Patch", "Lower Patch", "Corridor A", "Corridor B"]
 
 [states.0]
 label = "Upper Patch A"

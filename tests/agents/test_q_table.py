@@ -125,6 +125,16 @@ class TestQTableInit:
         qt = QTable(maze, timed=True)
         assert qt.horizon == 7
 
+    def test_builtin_one_way_maze_has_sparse_valid_actions(self):
+        maze = Maze.from_spec("simple_one_way", seed=0)
+
+        qt = QTable(maze, timed=False)
+
+        assert qt.valid_actions(0) == [0, 1]
+        assert qt.valid_actions(1) == [1]
+        assert qt.valid_actions(2) == [1]
+        assert qt.valid_actions(3) == [0, 1]
+
 
 class TestQTableIndexTranslation:
     def test_global_to_local_maps_simple_state_actions_q_table_actions(self):

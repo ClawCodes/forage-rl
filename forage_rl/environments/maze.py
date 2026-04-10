@@ -148,7 +148,13 @@ class Maze(gym.Env):
         """Return sorted (next_state, probability) transitions for a state-action."""
         self._validate_state(state_idx)
         self._validate_action(action_idx)
-        return self._transitions_by_state_action[(state_idx, action_idx)]
+        transition_key = (state_idx, action_idx)
+        try:
+            return self._transitions_by_state_action[transition_key]
+        except KeyError as exc:
+            raise ValueError(
+                f"action {action_idx} is not valid for state {state_idx}"
+            ) from exc
 
     def _sample_next_state(self, state_idx: int, action_idx: int) -> int:
         transition_distribution = self.transition_distribution(state_idx, action_idx)
@@ -328,6 +334,7 @@ def _simple_spec_from_decays(
             horizon=horizon,
             initial_state=0,
             action_labels=["stay", "leave"],
+            observation_labels=["Upper Patch", "Lower Patch"],
         ),
         states=[
             StateSpec(

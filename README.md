@@ -107,8 +107,8 @@ decay             = 0.2          # reward depletion rate (must be > 0)
 observation_group = 0            # groups states that look identical in POMDP mode
 
 [states.0.transitions]
-# Each action maps to a list of [next_state, probability] outcomes.
-# Probabilities for each (state, action) pair must sum to 1.0.
+# Each defined action maps to a list of [next_state, probability] outcomes.
+# Probabilities for each defined (state, action) pair must sum to 1.0.
 stay  = [[0, 1.0]]          # staying keeps the agent in state 0
 leave = [[1, 1.0]]          # leaving moves to state 1
 
@@ -146,7 +146,8 @@ leave = [[1, 1.0, 3]]   # takes 3 timesteps to leave
 - State ids must be contiguous from `0` to `N-1`
 - `initial_state` must be a valid state id
 - `observation_group` values must be contiguous from `0` to `K-1`
-- Every `(state, action)` pair must have transitions that sum to exactly `1.0`
+- Every state must define at least one action
+- Every defined `(state, action)` pair must have transitions that sum to exactly `1.0`
 - No duplicate `(state, action, next_state)` rows
 - Transition modes (with/without duration) cannot be mixed within the same file
 

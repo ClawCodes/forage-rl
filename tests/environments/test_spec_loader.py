@@ -1,4 +1,8 @@
+import pytest
+from pydantic import ValidationError
+
 from forage_rl.environments.spec_loader import load_builtin_maze_spec
+from forage_rl.environments.specs import MazeSpec
 
 
 class TestSpecLoader:
@@ -12,6 +16,7 @@ class TestSpecLoader:
         assert maze.maze.horizon == 100
         assert maze.maze.initial_state == 0
         assert maze.maze.action_labels == ["stay", "leave"]
+        assert maze.maze.observation_labels == ["Upper Patch", "Lower Patch"]
 
         # States
         assert len(maze.states) == 2
@@ -58,6 +63,7 @@ class TestSpecLoader:
         assert maze.maze.horizon == 100
         assert maze.maze.initial_state == 0
         assert maze.maze.action_labels == ["stay", "leave"]
+        assert maze.maze.observation_labels == ["Upper Patch", "Lower Patch"]
 
         # States
         assert len(maze.states) == 6
@@ -133,3 +139,51 @@ class TestSpecLoader:
         assert maze.transitions[15].action == 1
         assert maze.transitions[15].next_state == 2
         assert maze.transitions[15].prob == 0.50
+
+    def test_load_simple_one_way_maze(self):
+        maze = load_builtin_maze_spec(name="simple_one_way")
+
+        assert maze.maze.name == "simple_one_way"
+        assert len(maze.states) == 4
+        assert len(maze.transitions) == 6
+        assert (1, 0) not in maze.transition_map()
+        assert maze.transition_map()[(1, 1)] == [(3, 1.0)]
+        assert maze.transition_map()[(2, 1)] == [(0, 1.0)]
+        assert maze.maze.observation_labels == [
+            "Upper Patch",
+            "Corridor A",
+            "Corridor B",
+            "Lower Patch",
+        ]
+
+    def test_load_full_one_way_maze(self):
+        maze = load_builtin_maze_spec(name="full_one_way")
+
+        assert maze.maze.name == "full_one_way"
+        assert len(maze.states) == 8
+        assert len(maze.transitions) == 18
+        assert (6, 0) not in maze.transition_map()
+        assert maze.transition_map()[(6, 1)] == [(3, 0.15), (4, 0.35), (5, 0.5)]
+        assert maze.transition_map()[(7, 1)] == [(0, 0.15), (1, 0.35), (2, 0.5)]
+        assert maze.maze.observation_labels == [
+            "Upper Patch",
+            "Lower Patch",
+            "Corridor A",
+            "Corridor B",
+        ]
+
+    def test_observation_labels_property_matches_maze_meta(self):
+        spec = load_builtin_maze_spec(name="simple_one_way")
+        assert spec.observation_labels == spec.maze.observation_labels
+
+    def test_observation_labels_length_mismatch_raises(self):
+        import tomllib
+        from forage_rl.config import MAZE_SPECS_DIR
+
+        with open(MAZE_SPECS_DIR / "simple.toml", "rb") as f:
+            raw = tomllib.load(f)
+
+        raw["maze"]["observation_labels"] = ["Upper Patch", "Lower Patch", "Extra"]
+
+        with pytest.raises(ValidationError, match="observation_labels length"):
+            MazeSpec(**raw)

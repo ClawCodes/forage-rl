@@ -3,6 +3,7 @@ name = "simple"
 horizon = 100
 initial_state = 0
 action_labels = ["stay", "leave"]
+observation_labels = ["Upper Patch", "Lower Patch"]
 
 [states.0]
 label = "Upper Patch"

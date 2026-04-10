@@ -479,24 +479,40 @@ def _draw_modal_residency(
     """Draw the modal (most frequent) state at each time step across trajectories.
 
     Marker size is proportional to the fraction of trajectories in the modal state.
+    For partially observable mazes, bins trajectories by observation group rather
+    than raw state, and labels the y-axis with observation group names.
     """
     state_seqs = [[t.state for t in traj.transitions] for traj in trajectories]
     min_len = min(len(s) for s in state_seqs)
     arr = np.array([s[:min_len] for s in state_seqs])  # (n_trajs, min_len)
 
-    modal_states = []
-    frequencies = []
-    for step in range(min_len):
-        counts = np.bincount(arr[:, step], minlength=maze.num_states)
-        modal = int(np.argmax(counts))
-        modal_states.append(modal)
-        frequencies.append(counts[modal] / len(trajectories))
+    if isinstance(maze, MazePOMDP):
+        obs_map = maze._state_to_observation_group
+        obs_arr = np.vectorize(obs_map.__getitem__)(arr)
+        n_bins = maze.num_observations
+        modal_vals = []
+        frequencies = []
+        for step in range(min_len):
+            counts = np.bincount(obs_arr[:, step], minlength=n_bins)
+            modal = int(np.argmax(counts))
+            modal_vals.append(modal)
+            frequencies.append(counts[modal] / len(trajectories))
+        y_labels = maze.maze_spec.observation_labels
+    else:
+        n_bins = maze.num_states
+        modal_vals = []
+        frequencies = []
+        for step in range(min_len):
+            counts = np.bincount(arr[:, step], minlength=n_bins)
+            modal = int(np.argmax(counts))
+            modal_vals.append(modal)
+            frequencies.append(counts[modal] / len(trajectories))
+        y_labels = maze.state_labels or [f"State {s}" for s in range(n_bins)]
 
     sizes = np.array(frequencies) * 40
-    ax.scatter(range(min_len), modal_states, s=sizes, alpha=0.7, color="#3498db")
-    state_labels = maze.state_labels or [f"State {s}" for s in range(maze.num_states)]
-    ax.set_yticks(range(maze.num_states))
-    ax.set_yticklabels(state_labels)
+    ax.scatter(range(min_len), modal_vals, s=sizes, alpha=0.7, color="#3498db")
+    ax.set_yticks(range(n_bins))
+    ax.set_yticklabels(y_labels)
     ax.set_xlabel("Transition", fontsize=12)
     ax.set_ylabel("Location", fontsize=12)
     ax.set_title(f"Modal Residency Location (n={len(trajectories)})", fontsize=14)
@@ -680,28 +696,54 @@ def plot_aggregate_comparison(
 
 
 if __name__ == "__main__":
-    plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="simple", save=True)
-    plot_aggregate_comparison(
-        Agent.MBRL, [Agent.QLearning], maze_name="simple", save=True
+    plot_aggregate_trajectory_stats(
+        Agent.QLearning, maze_name="full_one_way", observable=True, save=True
     )
-    plot_aggregate_comparison(
-        Agent.QLearning, [Agent.MBRL], maze_name="simple", save=True
+    plot_aggregate_trajectory_stats(
+        Agent.QLearning, maze_name="full_one_way", observable=False, save=True
     )
-
-    plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="full", save=True)
-    plot_aggregate_comparison(
-        Agent.MBRL, [Agent.QLearning], maze_name="full", save=True
+    plot_aggregate_trajectory_stats(
+        Agent.MBRL, maze_name="full_one_way", observable=True, save=True
     )
-    plot_aggregate_comparison(
-        Agent.QLearning, [Agent.MBRL], maze_name="full", save=True
+    plot_aggregate_trajectory_stats(
+        Agent.MBRL, maze_name="full_one_way", observable=False, save=True
     )
 
     plot_aggregate_trajectory_stats(
-        Agent.MBRL, maze_name="full", observable=False, save=True
+        Agent.QLearning, maze_name="simple_one_way", observable=True, save=True
     )
-    plot_aggregate_comparison(
-        Agent.MBRL, [Agent.QLearning], maze_name="full", observable=False, save=True
+    plot_aggregate_trajectory_stats(
+        Agent.QLearning, maze_name="simple_one_way", observable=False, save=True
     )
-    plot_aggregate_comparison(
-        Agent.QLearning, [Agent.MBRL], maze_name="full", observable=False, save=True
+    plot_aggregate_trajectory_stats(
+        Agent.MBRL, maze_name="simple_one_way", observable=True, save=True
     )
+    plot_aggregate_trajectory_stats(
+        Agent.MBRL, maze_name="simple_one_way", observable=False, save=True
+    )
+
+    # plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="simple", save=True)
+    # plot_aggregate_comparison(
+    #     Agent.MBRL, [Agent.QLearning], maze_name="simple", save=True
+    # )
+    # plot_aggregate_comparison(
+    #     Agent.QLearning, [Agent.MBRL], maze_name="simple", save=True
+    # )
+    #
+    # plot_aggregate_trajectory_stats(Agent.MBRL, maze_name="full", save=True)
+    # plot_aggregate_comparison(
+    #     Agent.MBRL, [Agent.QLearning], maze_name="full", save=True
+    # )
+    # plot_aggregate_comparison(
+    #     Agent.QLearning, [Agent.MBRL], maze_name="full", save=True
+    # )
+    #
+    # plot_aggregate_trajectory_stats(
+    #     Agent.MBRL, maze_name="full", observable=False, save=True
+    # )
+    # plot_aggregate_comparison(
+    #     Agent.MBRL, [Agent.QLearning], maze_name="full", observable=False, save=True
+    # )
+    # plot_aggregate_comparison(
+    #     Agent.QLearning, [Agent.MBRL], maze_name="full", observable=False, save=True
+    # )
