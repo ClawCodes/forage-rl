@@ -11,7 +11,7 @@ def _load_torch() -> ModuleType:
         return importlib.import_module("torch")
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "PyTorch is required for DQN/DRQN support. Install the optional "
+            "PyTorch is required for neural-agent support. Install the optional "
             "'neural' dependency group or a compatible torch build first."
         ) from exc
 
