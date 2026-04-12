@@ -26,7 +26,9 @@ class DQNAgent(NeuralAgentBase):
     ):
         super().__init__(maze, **kwargs)
         self.replay_buffer = deque(maxlen=self.replay_capacity)
-        self.warmup_steps = self.batch_size if warmup_steps is None else warmup_steps
+        resolved_warmup_steps = self.batch_size if warmup_steps is None else warmup_steps
+        self._require_non_negative_int("warmup_steps", resolved_warmup_steps)
+        self.warmup_steps = int(resolved_warmup_steps)
 
     def _build_model(self):
         return self.nn.Sequential(
@@ -153,7 +155,11 @@ class DQNAgent(NeuralAgentBase):
         return action
 
     def simulate(self, trajectory: Trajectory) -> list[float]:
-        """Evaluate log-likelihood of one episode under online DQN updates."""
+        """Evaluate one episode while preserving online DQN learning semantics.
+
+        This intentionally mutates replay and optimizer state so repeated calls
+        behave like a continuing evaluator rather than a pure forward pass.
+        """
         log_likelihoods: list[float] = []
         context = self.initial_context()
 
