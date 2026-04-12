@@ -16,6 +16,7 @@ class MazeMeta(BaseModel):
     horizon: int = Field(default=DefaultParams.HORIZON, gt=0)
     initial_state: int = 0
     action_labels: List[str] = Field(default_factory=lambda: ["stay", "leave"])
+    observation_labels: List[str]
 
 
 class StateSpec(BaseModel):
@@ -91,6 +92,11 @@ class MazeSpec(BaseModel):
     def state_labels(self) -> List[str]:
         """Return state labels ordered by state id."""
         return [state_spec.label for state_spec in self._sorted_states()]
+
+    @property
+    def observation_labels(self) -> List[str]:
+        """Return observation group labels ordered by group id."""
+        return list(self.maze.observation_labels)
 
     def transition_map(self) -> Dict[Tuple[int, int], List[Tuple[int, float]]]:
         """
@@ -229,6 +235,13 @@ class MazeSpec(BaseModel):
                 f"got {observation_groups}"
             )
 
+        num_obs_groups = len(observation_groups)
+        if len(self.maze.observation_labels) != num_obs_groups:
+            raise ValueError(
+                f"observation_labels length ({len(self.maze.observation_labels)}) "
+                f"must equal number of observation groups ({num_obs_groups})"
+            )
+
         seen_triples = set()
         prob_sums_by_state_action: Dict[Tuple[int, int], float] = defaultdict(float)
 
@@ -290,20 +303,28 @@ class MazeSpec(BaseModel):
                 (transition_row.state, transition_row.action)
             ] += transition_row.prob
 
+        states_with_outgoing_actions = {
+            state_idx for state_idx, _ in prob_sums_by_state_action
+        }
+
         for state_idx in range(self.num_states):
-            for action_idx in range(self.num_actions):
-                state_action_key = (state_idx, action_idx)
-                if state_action_key not in prob_sums_by_state_action:
-                    raise ValueError(
-                        "missing transition rows for "
-                        f"state={state_idx}, action={action_idx}"
-                    )
-                total_prob = prob_sums_by_state_action[state_action_key]
-                if not np.isclose(total_prob, 1.0):
-                    raise ValueError(
-                        "transition probabilities for "
-                        f"state={state_idx}, action={action_idx} "
-                        f"must sum to 1.0, got {total_prob:.6f}"
-                    )
+            if state_idx not in states_with_outgoing_actions:
+                raise ValueError(f"state={state_idx} has no outgoing transitions")
+
+        for (state_idx, action_idx), total_prob in prob_sums_by_state_action.items():
+            if not 0 <= action_idx < self.num_actions:
+                raise ValueError(
+                    f"transitions action {action_idx} is out of bounds for {self.num_actions} actions"
+                )
+            if not 0 <= state_idx < self.num_states:
+                raise ValueError(
+                    f"transitions state {state_idx} is out of bounds for {self.num_states} states"
+                )
+            if not np.isclose(total_prob, 1.0):
+                raise ValueError(
+                    "transition probabilities for "
+                    f"state={state_idx}, action={action_idx} "
+                    f"must sum to 1.0, got {total_prob:.6f}"
+                )
 
         return self

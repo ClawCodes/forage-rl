@@ -148,7 +148,13 @@ class Maze(gym.Env):
         """Return sorted (next_state, probability) transitions for a state-action."""
         self._validate_state(state_idx)
         self._validate_action(action_idx)
-        return self._transitions_by_state_action[(state_idx, action_idx)]
+        transition_key = (state_idx, action_idx)
+        try:
+            return self._transitions_by_state_action[transition_key]
+        except KeyError as exc:
+            raise ValueError(
+                f"action {action_idx} is not valid for state {state_idx}"
+            ) from exc
 
     def _sample_next_state(self, state_idx: int, action_idx: int) -> int:
         transition_distribution = self.transition_distribution(state_idx, action_idx)
@@ -297,6 +303,23 @@ class MazePOMDP(Maze):
         done = terminated or truncated
         return transition, done
 
+    def obs_transition_distribution(
+        self, obs_group: int, action_idx: int
+    ) -> list[tuple[int, float]]:
+        """Return (next_obs_group, probability) marginalised over states in obs_group."""
+        states_in_group = [
+            s for s, g in self._state_to_observation_group.items() if g == obs_group
+        ]
+        weight = 1.0 / len(states_in_group)
+        next_obs_probs: dict[int, float] = {}
+        for s in states_in_group:
+            for next_state, prob in self.transition_distribution(s, action_idx):
+                next_obs = self._state_to_observation_group[next_state]
+                next_obs_probs[next_obs] = (
+                    next_obs_probs.get(next_obs, 0.0) + prob * weight
+                )
+        return sorted(next_obs_probs.items())
+
 
 def _simple_spec_from_decays(
     decays: list[float], horizon: int = DefaultParams.HORIZON
@@ -311,6 +334,7 @@ def _simple_spec_from_decays(
             horizon=horizon,
             initial_state=0,
             action_labels=["stay", "leave"],
+            observation_labels=["Upper Patch", "Lower Patch"],
         ),
         states=[
             StateSpec(

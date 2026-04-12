@@ -7,6 +7,7 @@ import numpy as np
 from forage_rl import Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
+from .q_table import QTable
 
 
 class BaseAgent(ABC):
@@ -18,7 +19,7 @@ class BaseAgent(ABC):
     def __init__(self, maze: Maze, beta: float = DefaultParams.BETA):
         self.maze = maze
         self.beta = beta
-        self.q_table = np.array([])  # Subclasses must initialize
+        self.q_table = QTable(maze)
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:
         """Compute Boltzmann (softmax) action probabilities."""
@@ -32,13 +33,9 @@ class BaseAgent(ABC):
 
     def get_policy(self) -> np.ndarray:
         """Extract greedy policy from Q-table."""
-        if self.q_table.size == 0:
+        if self.q_table is None:
             raise ValueError("Q-table not initialized")
-
-        if len(self.q_table.shape) == 3:
-            return np.argmax(self.q_table, axis=2)  # time-bound q-table
-        else:
-            return np.argmax(self.q_table, axis=1)  # non-time-bound q-table
+        return self.q_table.policy()
 
     @abstractmethod
     def simulate(self, trajectory) -> list[float]:

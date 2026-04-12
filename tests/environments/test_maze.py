@@ -3,6 +3,7 @@ from forage_rl.environments.spec_loader import load_builtin_maze_spec
 from forage_rl.types import Transition
 import numpy as np
 from gymnasium.spaces import Discrete
+import pytest
 
 
 class TestMazeInitialization:
@@ -235,6 +236,23 @@ class TestMazeStep:
         # Assert
         assert info["prev_state"] == 0
         assert info["action"] == 1
+
+    def test_transition_distribution_rejects_invalid_action_for_state(self):
+        maze = Maze.from_spec("simple_one_way", seed=42)
+
+        with pytest.raises(ValueError, match="action 0 is not valid for state 1"):
+            maze.transition_distribution(1, 0)
+
+    def test_one_way_maze_corridor_leave_is_forced(self):
+        maze = Maze.from_spec("simple_one_way", seed=42)
+        maze.reset()
+        maze.step(1)
+
+        obs, reward, _, _, info = maze.step(1)
+
+        assert info["prev_state"] == 1
+        assert obs == 3
+        assert reward == 0.0
 
 
 class TestMazeStepTransition:
