@@ -7,11 +7,14 @@ import os
 from dataclasses import dataclass
 from typing import TypeVar
 
-from forage_rl.agents.registry import Agent, EvaluatorSpec
+from forage_rl.agents.registry import (
+    Agent,
+    EvaluatorSpec,
+    is_neural_agent as _is_registered_neural_agent,
+)
 from forage_rl.utils.torch_support import resolve_device
 
 
-NEURAL_AGENTS = {Agent.DQN, Agent.DRQN}
 TAgentLike = TypeVar("TAgentLike", Agent, EvaluatorSpec)
 
 
@@ -26,7 +29,7 @@ class ExecutionStrategy:
 
 def is_neural_agent(agent: Agent) -> bool:
     """Return whether an agent is backed by PyTorch."""
-    return agent in NEURAL_AGENTS
+    return _is_registered_neural_agent(agent)
 
 
 def uses_torch_agents(items: list[Agent | EvaluatorSpec] | None) -> bool:
