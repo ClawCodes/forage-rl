@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
 
 from forage_rl.agents.base import BaseAgent
-from forage_rl.agents.registry import Agent
+from forage_rl.agents.base import ensure_time_spent_compatible
+from forage_rl.agents.registry import Agent, NeuralContextMode, validate_context_mode
 from forage_rl.config import DefaultParams
 from forage_rl.environments import MazePOMDP
-from forage_rl.utils.io import checkpoint_path
 from forage_rl.utils.torch_support import require_torch, resolve_device
 
 if TYPE_CHECKING:
@@ -29,19 +30,69 @@ class NeuralAgentBase(BaseAgent):
     """Shared PyTorch-backed logic for neural agents."""
 
     agent_name: Agent
-    feature_schema_components = (
-        "observation_one_hot",
-        "normalized_time_spent",
-        "prev_reward",
-        "prev_action_one_hot",
-    )
+    feature_schema_components_by_context_mode: dict[NeuralContextMode, tuple[str, ...]] = {
+        "observation_only": ("observation_one_hot",),
+        "prev_reward": ("observation_one_hot", "prev_reward"),
+        "prev_reward_time": (
+            "observation_one_hot",
+            "normalized_time_spent",
+            "prev_reward",
+        ),
+        "legacy_context": (
+            "observation_one_hot",
+            "normalized_time_spent",
+            "prev_reward",
+            "prev_action_one_hot",
+        ),
+    }
+
+    @staticmethod
+    def _require_positive_int(name: str, value: int) -> None:
+        if int(value) <= 0:
+            raise ValueError(f"{name} must be a positive integer, got {value!r}.")
+
+    @staticmethod
+    def _require_non_negative_int(name: str, value: int) -> None:
+        if int(value) < 0:
+            raise ValueError(f"{name} must be a non-negative integer, got {value!r}.")
+
+    @staticmethod
+    def _require_positive_float(name: str, value: float) -> None:
+        numeric_value = float(value)
+        if (not np.isfinite(numeric_value)) or numeric_value <= 0.0:
+            raise ValueError(f"{name} must be a finite positive float, got {value!r}.")
+
+    @staticmethod
+    def _resolve_learning_rate(
+        *,
+        alpha: float | None,
+        learning_rate: float,
+    ) -> float:
+        resolved_learning_rate = float(learning_rate)
+        if alpha is None:
+            return resolved_learning_rate
+
+        alpha_value = float(alpha)
+        if (not np.isfinite(alpha_value)) or alpha_value <= 0.0:
+            raise ValueError(
+                f"alpha must be a finite positive float when provided, got {alpha!r}."
+            )
+        if np.isclose(alpha_value, resolved_learning_rate):
+            return alpha_value
+        if np.isclose(resolved_learning_rate, float(DefaultParams.LEARNING_RATE)):
+            return alpha_value
+        raise ValueError(
+            "Neural agents treat alpha as a legacy alias for learning_rate; got "
+            f"conflicting values alpha={alpha_value!r}, "
+            f"learning_rate={resolved_learning_rate!r}."
+        )
 
     def __init__(
         self,
         maze: "Maze",
         *,
         num_episodes: int = DefaultParams.NUM_EPISODES,
-        alpha: float = DefaultParams.ALPHA,
+        alpha: float | None = None,
         gamma: float = DefaultParams.GAMMA,
         beta: float = DefaultParams.BETA,
         learning_rate: float = DefaultParams.LEARNING_RATE,
@@ -53,23 +104,39 @@ class NeuralAgentBase(BaseAgent):
         init_mode: str = "fresh",
         checkpoint_path_override: Path | str | None = None,
         checkpoint_path: Path | str | None = None,
+        context_mode: NeuralContextMode = "legacy_context",
         seed: int | None = None,
     ):
         super().__init__(maze, beta=beta, seed=seed)
+        ensure_time_spent_compatible(maze, consumer=type(self).__name__)
+        resolved_learning_rate = self._resolve_learning_rate(
+            alpha=alpha,
+            learning_rate=learning_rate,
+        )
+        self._require_non_negative_int("num_episodes", num_episodes)
+        self._require_positive_float("learning_rate", resolved_learning_rate)
+        self._require_positive_int("batch_size", batch_size)
+        self._require_positive_int("replay_capacity", replay_capacity)
+        self._require_positive_int("target_update_interval", target_update_interval)
+        self._require_positive_float("gradient_clip", gradient_clip)
         self.num_episodes = num_episodes
-        self.alpha = alpha
+        self.alpha = resolved_learning_rate
         self.gamma = gamma
-        self.learning_rate = learning_rate
+        self.learning_rate = resolved_learning_rate
         self.batch_size = batch_size
         self.replay_capacity = replay_capacity
         self.target_update_interval = target_update_interval
         self.gradient_clip = gradient_clip
         self.init_mode = init_mode
+        self.context_mode = validate_context_mode(context_mode)
         self.device = resolve_device(device)
         self.obs_dim = int(maze.observation_space.n)  # type: ignore[attr-defined]
         self.feature_schema_version = DefaultParams.NEURAL_FEATURE_SCHEMA_VERSION
+        self.feature_schema_components = self._feature_components_for_context_mode(
+            self.context_mode
+        )
         action_dim = int(self.maze.num_actions)
-        self.feature_dim = int(self.obs_dim + 1 + 1 + action_dim)
+        self.feature_dim = self._feature_dim_for_context_mode(action_dim)
         self.training_steps = 0
 
         self.torch = require_torch()
@@ -94,6 +161,10 @@ class NeuralAgentBase(BaseAgent):
         effective_path = checkpoint_path_override or checkpoint_path
         if self.init_mode == "pretrained":
             resolved_path = self._default_checkpoint_path() if effective_path is None else Path(effective_path)
+            self._validate_checkpoint_horizon_metadata(
+                resolved_path,
+                requires_metadata=effective_path is None,
+            )
             self.load_checkpoint(resolved_path)
 
     @abstractmethod
@@ -101,9 +172,67 @@ class NeuralAgentBase(BaseAgent):
         """Build the online or target network."""
 
     def _default_checkpoint_path(self) -> Path:
+        from forage_rl.utils.io import resolve_checkpoint_load_path
+
         maze_name = self.maze.maze_spec.maze.name
         observable = not isinstance(self.maze, MazePOMDP)
-        return checkpoint_path(self.agent_name, maze_name, observable)
+        return resolve_checkpoint_load_path(
+            self.agent_name,
+            maze_name,
+            observable,
+            context_mode=self.context_mode,
+            horizon=self.maze.horizon,
+        )
+
+    def _validate_checkpoint_horizon_metadata(
+        self,
+        path: Path,
+        *,
+        requires_metadata: bool,
+    ) -> None:
+        """Reject pretrained checkpoints whose saved horizon differs from this maze."""
+        metadata_path = path.with_suffix(".json")
+        if not metadata_path.exists():
+            if requires_metadata:
+                raise ValueError(
+                    f"Checkpoint metadata is missing for {path.name}; regenerate pretrained "
+                    "neural checkpoints with the current code."
+                )
+            return
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if "horizon" not in metadata:
+            raise ValueError(
+                f"Checkpoint metadata at {metadata_path} is missing horizon and must be "
+                "regenerated."
+            )
+
+        checkpoint_horizon = int(metadata["horizon"])
+        if checkpoint_horizon != self.maze.horizon:
+            raise ValueError(
+                f"Checkpoint metadata at {metadata_path} uses horizon={checkpoint_horizon}, "
+                f"but this agent expects horizon={self.maze.horizon}."
+            )
+
+    def _feature_components_for_context_mode(
+        self,
+        context_mode: NeuralContextMode,
+    ) -> tuple[str, ...]:
+        return self.feature_schema_components_by_context_mode[context_mode]
+
+    def _feature_dim_for_context_mode(self, action_dim: int) -> int:
+        component_widths = {
+            "observation_one_hot": self.obs_dim,
+            "normalized_time_spent": 1,
+            "prev_reward": 1,
+            "prev_action_one_hot": action_dim,
+        }
+        return int(
+            sum(
+                component_widths[component]
+                for component in self.feature_schema_components
+            )
+        )
 
     def _encode_prev_action(self, prev_action: int | None) -> np.ndarray:
         """Encode the previous action as a one-hot vector or zeros at episode start."""
@@ -121,15 +250,27 @@ class NeuralAgentBase(BaseAgent):
         prev_reward: float = 0.0,
     ) -> np.ndarray:
         """Encode the full neural-agent context into a feature array."""
-        feature = np.zeros(self.feature_dim, dtype=np.float32)
-        feature[int(state)] = 1.0
+        feature_parts: list[np.ndarray] = []
+        observation_feature = np.zeros(self.obs_dim, dtype=np.float32)
+        observation_feature[int(state)] = 1.0
+        feature_parts.append(observation_feature)
+
         horizon = max(self.maze.horizon - 1, 1)
-        feature[self.obs_dim] = float(min(time_spent, self.maze.horizon - 1)) / float(
-            horizon
-        )
-        feature[self.obs_dim + 1] = float(prev_reward)
-        feature[self.obs_dim + 2 :] = self._encode_prev_action(prev_action)
-        return feature
+        if "normalized_time_spent" in self.feature_schema_components:
+            feature_parts.append(
+                np.array(
+                    [
+                        float(min(time_spent, self.maze.horizon - 1))
+                        / float(horizon)
+                    ],
+                    dtype=np.float32,
+                )
+            )
+        if "prev_reward" in self.feature_schema_components:
+            feature_parts.append(np.array([float(prev_reward)], dtype=np.float32))
+        if "prev_action_one_hot" in self.feature_schema_components:
+            feature_parts.append(self._encode_prev_action(prev_action))
+        return np.concatenate(feature_parts, dtype=np.float32)
 
     def encode_feature_tensor(
         self,
@@ -161,6 +302,7 @@ class NeuralAgentBase(BaseAgent):
             "feature_schema_version": int(self.feature_schema_version),
             "feature_dim": int(self.feature_dim),
             "feature_components": list(self.feature_schema_components),
+            "context_mode": self.context_mode,
         }
 
     def context_trace(self, trajectory: "Trajectory") -> list[dict[str, object]]:
@@ -230,22 +372,25 @@ class NeuralAgentBase(BaseAgent):
         schema_version = checkpoint.get("feature_schema_version")
         feature_dim = checkpoint.get("feature_dim")
         feature_components = checkpoint.get("feature_components")
+        checkpoint_context_mode = checkpoint.get("context_mode", "legacy_context")
         if schema_version is None:
             raise ValueError(
                 f"Legacy checkpoint at {path} is incompatible with the current neural "
-                "feature schema. Retrain pretrained DQN/DRQN checkpoints with "
+                "feature schema. Retrain pretrained neural checkpoints with "
                 "`python -m forage_rl.experiments.train_pretrained_agents`."
             )
         if (
             int(schema_version) != self.feature_schema_version
             or int(feature_dim) != self.feature_dim
             or list(feature_components) != list(self.feature_schema_components)
+            or checkpoint_context_mode != self.context_mode
         ):
             raise ValueError(
                 f"Checkpoint at {path} uses neural feature schema "
                 f"(version={schema_version}, feature_dim={feature_dim}, "
-                f"components={feature_components}) but this agent expects "
-                f"{self.feature_schema_metadata()}. Retrain pretrained DQN/DRQN "
+                f"components={feature_components}, context_mode={checkpoint_context_mode}) "
+                f"but this agent expects "
+                f"{self.feature_schema_metadata()}. Retrain pretrained neural "
                 "checkpoints with the current code."
             )
         self.q_network.load_state_dict(checkpoint["model_state_dict"])
