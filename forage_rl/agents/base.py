@@ -7,6 +7,7 @@ import numpy as np
 from forage_rl import RunDataset, Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
+
 from .q_table import QTable
 
 
@@ -24,8 +25,8 @@ class BaseAgent(ABC):
     ):
         self.maze = maze
         self.beta = beta
-        self.q_table = QTable(maze)
         self.rng = np.random.default_rng(seed)
+        self.q_table: QTable | None = None
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:
         """Compute Boltzmann (softmax) action probabilities."""
@@ -40,7 +41,9 @@ class BaseAgent(ABC):
     def get_policy(self) -> np.ndarray:
         """Extract greedy policy from Q-table."""
         if self.q_table is None:
-            raise ValueError("Q-table not initialized")
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not expose a tabular policy."
+            )
         return self.q_table.policy()
 
     @abstractmethod
@@ -70,3 +73,13 @@ class BaseAgent(ABC):
             for s in range(self.maze.num_states):
                 action = "Stay" if policy[s] == 0 else "Leave"
                 print(f"State {s}: {action}")
+
+
+def ensure_time_spent_compatible(maze: Maze, *, consumer: str) -> None:
+    """Reject explicit transition-duration specs for time-spent based algorithms."""
+    if maze.maze_spec.uses_transition_durations:
+        raise ValueError(
+            f"{consumer} does not support maze specs with explicit transition durations "
+            "because it models time_spent as consecutive same-state decisions rather "
+            "than elapsed transition duration."
+        )
