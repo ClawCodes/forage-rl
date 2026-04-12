@@ -16,10 +16,16 @@ class BaseAgent(ABC):
     Provides shared functionality for Boltzmann action selection and Q-value plotting.
     """
 
-    def __init__(self, maze: Maze, beta: float = DefaultParams.BETA):
+    def __init__(
+        self,
+        maze: Maze,
+        beta: float = DefaultParams.BETA,
+        seed: int | None = None,
+    ):
         self.maze = maze
         self.beta = beta
         self.q_table = QTable(maze)
+        self.rng = np.random.default_rng(seed)
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:
         """Compute Boltzmann (softmax) action probabilities."""
@@ -29,7 +35,7 @@ class BaseAgent(ABC):
     def choose_action_boltzmann(self, q_values: np.ndarray) -> int:
         """Choose action using Boltzmann exploration."""
         action_probs = self.boltzmann_action_probs(q_values)
-        return int(np.random.choice(len(q_values), p=action_probs))
+        return int(self.rng.choice(len(q_values), p=action_probs))
 
     def get_policy(self) -> np.ndarray:
         """Extract greedy policy from Q-table."""
