@@ -1,7 +1,7 @@
 [project]
 name = "forage-rl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Foraging reinforcement learning experiments comparing tabular and neural agents."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
