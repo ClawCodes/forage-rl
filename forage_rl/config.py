@@ -33,7 +33,7 @@ class DefaultParams:
     # Training parameters
     NUM_EPISODES = 200
     NUM_TRAINING_RUNS = 100  # Number of trajectory files to generate
-    NUM_TRAINING_EPISODES = 6  # Episodes per training run for trajectory generation
+    NUM_TRAINING_EPISODES = 100  # Episodes per generated run dataset
 
     # Environment parameters
     HORIZON = 100  # Maximum timesteps per episode
@@ -48,7 +48,10 @@ class DefaultParams:
     LEARNING_RATE = 1e-3
     REPLAY_CAPACITY = 4096
     BATCH_SIZE = 64
-    DRQN_SEQUENCE_LENGTH = 16
+    RECURRENT_HIDDEN_SIZE = 64
+    RECURRENT_NUM_LAYERS = 1
+    RECURRENT_SEQUENCE_LENGTH = 16
+    RECURRENT_BURN_IN = 0
     TARGET_UPDATE_INTERVAL = 50
     GRADIENT_CLIP = 5.0
     FRESH_EVALUATOR_SEED = 0
