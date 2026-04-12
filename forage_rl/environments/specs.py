@@ -24,8 +24,36 @@ class StateSpec(BaseModel):
 
     id: int
     label: str
-    decay: float = Field(gt=0)
+    decay: float | None = Field(default=None, gt=0)
+    initial_reward_prob: float = Field(default=1.0, ge=0.0, le=1.0)
+    reward_probs: list[float] | None = None
     observation_group: int = Field(gt=-1)
+
+    @model_validator(mode="after")
+    def validate_reward_definition(self) -> "StateSpec":
+        if self.decay is None and self.reward_probs is None:
+            raise ValueError(
+                "Each state must define either a positive decay or reward_probs."
+            )
+        if self.reward_probs is not None:
+            if len(self.reward_probs) == 0:
+                raise ValueError("reward_probs must contain at least one probability.")
+            invalid = [
+                value
+                for value in self.reward_probs
+                if value < 0.0 or value > 1.0
+            ]
+            if invalid:
+                raise ValueError(
+                    "reward_probs values must lie in [0, 1], "
+                    f"got {invalid}."
+                )
+            if self.initial_reward_prob != 1.0:
+                raise ValueError(
+                    "initial_reward_prob cannot be used with reward_probs unless "
+                    "it remains at the default value of 1.0."
+                )
+        return self
 
 
 class TransitionStepSpec(BaseModel):
@@ -84,7 +112,7 @@ class MazeSpec(BaseModel):
         return sorted(self.states, key=lambda s: s.id)
 
     @property
-    def decays(self) -> List[float]:
+    def decays(self) -> List[float | None]:
         """Return per-state decay values ordered by state id."""
         return [state_spec.decay for state_spec in self._sorted_states()]
 
