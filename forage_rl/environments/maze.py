@@ -1,5 +1,6 @@
 """Foraging maze environments driven by validated maze specifications."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,9 +24,18 @@ from ..config import DefaultParams
 class ForagingReward:
     """Models time-dependent reward depletion in a foraging patch."""
 
-    def __init__(self, decay: float, rng: np.random.Generator):
-        """Initialize decay process with a dedicated RNG stream."""
+    def __init__(
+        self,
+        *,
+        decay: float | None,
+        initial_reward_prob: float = 1.0,
+        reward_probs: list[float] | None = None,
+        rng: np.random.Generator,
+    ):
+        """Initialize decay or scheduled reward process with a dedicated RNG."""
         self.decay = decay
+        self.initial_reward_prob = float(initial_reward_prob)
+        self.reward_probs = None if reward_probs is None else list(reward_probs)
         self.counter = 0
         self.rng = rng
 
@@ -36,8 +46,12 @@ class ForagingReward:
             self.rng = rng
 
     def sample_reward(self) -> float:
-        """Sample reward as Bernoulli(exp(-decay * counter))."""
-        reward_prob = np.exp(-self.decay * self.counter)
+        """Sample reward from the configured Bernoulli reward process."""
+        if self.reward_probs is None:
+            assert self.decay is not None
+            reward_prob = self.initial_reward_prob * np.exp(-self.decay * self.counter)
+        else:
+            reward_prob = self.reward_probs[min(self.counter, len(self.reward_probs) - 1)]
         self.counter += 1
         return 1.0 if self.rng.random() < reward_prob else 0.0
 
@@ -75,6 +89,9 @@ class Maze(gym.Env):
         self.state_labels = self.maze_spec.state_labels
         self.action_labels = list(self.maze_spec.maze.action_labels)
         self.initial_state = self.maze_spec.maze.initial_state
+        self._state_specs_by_id = {
+            state_spec.id: state_spec for state_spec in self.maze_spec.states
+        }
 
         # Gymnasium spaces
         self.observation_space = Discrete(self.num_states)
@@ -94,7 +111,15 @@ class Maze(gym.Env):
                 if isinstance(row, TransitionDurationSpec)
             }
 
-        self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
+        self.reward_models = [
+            ForagingReward(
+                decay=state_spec.decay,
+                initial_reward_prob=state_spec.initial_reward_prob,
+                reward_probs=state_spec.reward_probs,
+                rng=self.rng,
+            )
+            for state_spec in sorted(self.maze_spec.states, key=lambda state: state.id)
+        ]
 
     @classmethod
     def from_file(
@@ -156,6 +181,14 @@ class Maze(gym.Env):
                 f"action {action_idx} is not valid for state {state_idx}"
             ) from exc
 
+    def planning_transition_distribution(
+        self,
+        state_idx: int,
+        action_idx: int,
+    ) -> list[tuple[int, float]]:
+        """Return represented-state transitions for planning algorithms."""
+        return self.transition_distribution(state_idx, action_idx)
+
     def _sample_next_state(self, state_idx: int, action_idx: int) -> int:
         transition_distribution = self.transition_distribution(state_idx, action_idx)
         next_state_ids, transition_probs = zip(*transition_distribution)
@@ -185,6 +218,22 @@ class Maze(gym.Env):
         for reward_model in self.reward_models:
             reward_model.reset()
         return 0.0
+
+    def expected_stay_reward(self, state_idx: int, time_spent: int) -> float:
+        """Return the expected reward for one more stay in a represented state."""
+        self._validate_state(state_idx)
+        if time_spent < 0:
+            raise ValueError(f"time_spent must be >= 0, got {time_spent}")
+
+        state_spec = self._state_specs_by_id[state_idx]
+        if state_spec.reward_probs is not None:
+            reward_index = min(time_spent, len(state_spec.reward_probs) - 1)
+            return float(state_spec.reward_probs[reward_index])
+
+        assert state_spec.decay is not None
+        return float(
+            state_spec.initial_reward_prob * np.exp(-state_spec.decay * time_spent)
+        )
 
     # --- Begin Gymnasium interface ---
     def reset(
@@ -260,19 +309,97 @@ class MazePOMDP(Maze):
             horizon=horizon,
         )
         self._state_to_observation_group = self._build_state_observation_map()
+        self._observation_group_to_states = self._build_observation_group_state_map()
         self.num_observations = len(set(self._state_to_observation_group.values()))
         self.observation_space = Discrete(self.num_observations)
+        self._planning_transition_cache: dict[
+            tuple[int, int],
+            list[tuple[int, float]],
+        ] = {}
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
 
         return {state.id: state.observation_group for state in self.maze_spec.states}
 
+    def _build_observation_group_state_map(self) -> dict[int, tuple[int, ...]]:
+        grouped_states: dict[int, list[int]] = defaultdict(list)
+        for state_idx, observation_group in self._state_to_observation_group.items():
+            grouped_states[observation_group].append(state_idx)
+        return {
+            observation_group: tuple(sorted(state_ids))
+            for observation_group, state_ids in grouped_states.items()
+        }
+
+    def _validate_observation(self, observation_idx: int) -> None:
+        if observation_idx < 0 or observation_idx >= self.num_observations:
+            raise ValueError(
+                f"observation {observation_idx} is out of range [0, {self.num_observations})"
+            )
+
     def observe(self, state: Optional[int] = None) -> int:
         """Return observation group id for a state (or current state by default)."""
         state_idx = self.state if state is None else state
         self._validate_state(state_idx)
         return self._state_to_observation_group[state_idx]
+
+    def planning_transition_distribution(
+        self,
+        state_idx: int,
+        action_idx: int,
+    ) -> list[tuple[int, float]]:
+        """Return belief-independent observation-group transitions for planning."""
+        self._validate_observation(state_idx)
+        self._validate_action(action_idx)
+        cache_key = (state_idx, action_idx)
+        if cache_key in self._planning_transition_cache:
+            return self._planning_transition_cache[cache_key]
+
+        representative_states = self._observation_group_to_states[state_idx]
+        collapsed_distributions: list[tuple[int, list[tuple[int, float]]]] = []
+        for concrete_state in representative_states:
+            observation_probs: dict[int, float] = defaultdict(float)
+            for next_state, prob in super().transition_distribution(
+                concrete_state,
+                action_idx,
+            ):
+                observation_probs[self.observe(next_state)] += prob
+            collapsed_distributions.append(
+                (
+                    concrete_state,
+                    sorted(observation_probs.items(), key=lambda item: item[0]),
+                )
+            )
+
+        reference_state, reference_distribution = collapsed_distributions[0]
+        for concrete_state, collapsed_distribution in collapsed_distributions[1:]:
+            if len(collapsed_distribution) != len(reference_distribution):
+                raise ValueError(
+                    "Observation-group planning is ill-defined because hidden states "
+                    f"{reference_state} and {concrete_state} in observation group "
+                    f"{state_idx} induce different next-observation supports. "
+                    "Belief-state planning would be required."
+                )
+
+            for (expected_obs, expected_prob), (actual_obs, actual_prob) in zip(
+                reference_distribution,
+                collapsed_distribution,
+                strict=True,
+            ):
+                if expected_obs != actual_obs or not np.isclose(
+                    expected_prob,
+                    actual_prob,
+                ):
+                    raise ValueError(
+                        "Observation-group planning is ill-defined because hidden "
+                        f"states {reference_state} and {concrete_state} in "
+                        f"observation group {state_idx} induce different "
+                        "next-observation distributions. Belief-state planning "
+                        "would be required."
+                    )
+
+        self._planning_transition_cache[cache_key] = reference_distribution
+        return reference_distribution
 
     def reset(
         self,
@@ -391,7 +518,9 @@ MazeMDP = Maze | MazePOMDP
 
 
 def maze_from_builtin_maze_spec(
-    name: str = "simple", observable: bool = True
+    name: str = "simple",
+    observable: bool = True,
+    horizon: int | None = None,
 ) -> MazeMDP:
     maze_cls = Maze if observable else MazePOMDP
-    return maze_cls(load_builtin_maze_spec(name))
+    return maze_cls(load_builtin_maze_spec(name), horizon=horizon)
