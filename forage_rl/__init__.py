@@ -1,4 +1,4 @@
-"""NeuroSandBox: Reinforcement learning experiments for model-based vs model-free learning."""
+"""Foraging reinforcement learning experiments and analysis tooling."""
 
 from .types import RunDataset, TimedTransition, Trajectory, Transition
 
