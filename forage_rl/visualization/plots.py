@@ -2,26 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from forage_rl import RunDataset, Trajectory
-from forage_rl.agents.base import BaseAgent
-from forage_rl.agents.registry import (
-    Agent,
-    EvaluatorSpec,
-    PolicySpec,
-    agent_display_label,
-    context_mode_display_label,
-)
+from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments import resolve_effective_horizon
 from forage_rl.environments.maze import Maze, MazeMDP, MazePOMDP, maze_from_builtin_maze_spec
 from forage_rl.utils import (
-    get_run_count,
     list_run_dataset_run_ids,
     load_logprobs,
     load_run_dataset,
@@ -54,38 +45,6 @@ def _policy_artifact_label(policy: PolicyInput) -> str:
 def _evaluator_label(evaluator: EvaluatorInput) -> str:
     spec = _normalize_evaluator(evaluator)
     return spec.label
-
-
-def _policy_display_label(policy: PolicyInput, include_context: bool = True) -> str:
-    spec = _normalize_policy(policy)
-    base = agent_display_label(spec.agent)
-    if include_context and spec.context_mode != "legacy_context":
-        return f"{base} ({context_mode_display_label(spec.context_mode)})"
-    return base
-
-
-def _policy_line_style(policy: PolicyInput) -> dict[str, object]:
-    spec = _normalize_policy(policy)
-    color_by_agent = {
-        Agent.MBRL: "#3498db",
-        Agent.QLearning: "#2ecc71",
-        Agent.DQN: "#e67e22",
-        Agent.ELMAN: "#9b59b6",
-        Agent.GRU: "#e74c3c",
-        Agent.LSTM: "#34495e",
-        Agent.DRQN: "#34495e",
-    }
-    linestyle_by_context = {
-        "legacy_context": "-",
-        "observation_only": "--",
-        "prev_reward": "-.",
-        "prev_reward_time": ":",
-    }
-    return {
-        "color": color_by_agent.get(spec.agent, "#3498db"),
-        "linestyle": linestyle_by_context.get(spec.context_mode, "-"),
-        "linewidth": 2,
-    }
 
 
 def _load_policy_run_ids(
@@ -258,45 +217,6 @@ def _draw_cumulative_accuracy(
     ax.legend(fontsize=12)
 
 
-def plot_cumulative_sum_accuracy(
-    source: PolicyInput,
-    compare_to: list[EvaluatorInput],
-    maze_name: str = "simple",
-    num_datasets: Optional[int] = None,
-    observable: bool = True,
-    save: bool = False,
-    show: bool = True,
-    horizon: int | None = None,
-):
-    """Plot source-model win rate over observed transitions against each evaluator."""
-    comparisons = [
-        evaluator for evaluator in compare_to if _evaluator_label(evaluator) != _policy_artifact_label(source)
-    ]
-    if not comparisons:
-        print("No comparisons to plot.")
-        return None
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    _draw_cumulative_accuracy(
-        ax,
-        source,
-        compare_to,
-        maze_name,
-        num_datasets,
-        observable,
-        horizon=horizon,
-    )
-    ax.set_title(
-        f"Classification Accuracy over Sample Size (Trajectory source: {_policy_label(source)})",
-        fontsize=16,
-    )
-    plt.tight_layout()
-
-    filepath = FIGURES_DIR / f"cumulative_accuracy_{_policy_artifact_label(source)}.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
-
-
 def _draw_model_accuracies(
     ax: plt.Axes,
     source: PolicyInput,
@@ -416,157 +336,6 @@ def _draw_model_accuracies(
         )
 
 
-def _draw_cumulative_reward(ax: plt.Axes, trajectory: Trajectory) -> None:
-    rewards = [transition.reward for transition in trajectory.transitions]
-    ax.plot(np.cumsum(rewards), linewidth=2, color="#2ecc71")
-    ax.set_xlabel("Transition", fontsize=12)
-    ax.set_ylabel("Cumulative Reward", fontsize=12)
-    ax.set_title("Cumulative Reward Over Time", fontsize=14)
-
-
-def _draw_residency_location(ax: plt.Axes, trajectory: Trajectory, maze: Maze) -> None:
-    states = [transition.state for transition in trajectory.transitions]
-    state_labels = maze.state_labels or [f"State {state}" for state in range(maze.num_states)]
-    ax.scatter(range(len(states)), states, s=8, alpha=0.6, color="#3498db")
-    ax.set_yticks(range(maze.num_states))
-    ax.set_yticklabels(state_labels)
-    ax.set_xlabel("Transition", fontsize=12)
-    ax.set_ylabel("Location", fontsize=12)
-    ax.set_title("Residency Location Over Time", fontsize=14)
-
-
-def plot_model_accuracies_from_trajectory_type(
-    source: PolicyInput,
-    compare_to: list[EvaluatorInput],
-    maze_name: str = "simple",
-    num_datasets: Optional[int] = None,
-    observable: bool = True,
-    save: bool = False,
-    show: bool = True,
-    horizon: int | None = None,
-):
-    n = len([evaluator for evaluator in compare_to if _evaluator_label(evaluator) != _policy_artifact_label(source)])
-    fig, ax = plt.subplots(figsize=(max(6, 2.5 * max(n, 1)), 5), constrained_layout=True)
-    _draw_model_accuracies(
-        ax,
-        source,
-        compare_to,
-        maze_name,
-        num_datasets,
-        observable,
-        horizon=horizon,
-    )
-    filepath = FIGURES_DIR / f"model_accuracies_{_policy_artifact_label(source)}.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
-
-
-def plot_q_values_with_time(
-    q_agent: BaseAgent,
-    max_time_to_display: int = 6,
-    save: bool = False,
-    show: bool = True,
-):
-    q_table = q_agent.q_table
-    maze = q_agent.maze
-    num_states = maze.num_states
-
-    max_time = min(max_time_to_display, q_table.horizon)
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-    q_array = q_table.to_array()
-    horizon_vals = q_array[:, :max_time, :]
-    vmin = np.nanmin(horizon_vals)
-    vmax = np.nanmax(horizon_vals)
-
-    for index, action in enumerate(range(maze.num_actions)):
-        im = axes[index].imshow(q_array[:, :max_time, action], vmin=vmin, vmax=vmax)
-        axes[index].set_title(f"Q-values for Action {action} ({maze.get_action_label(index)})")
-        axes[index].set_xlabel("Time Spent")
-        axes[index].set_ylabel("States")
-        axes[index].set_xticks(range(max_time))
-        axes[index].set_xticklabels([f"t={j}" for j in range(max_time)])
-        axes[index].set_yticks(range(num_states))
-        axes[index].set_yticklabels(maze.state_labels or [f"State {state}" for state in range(num_states)])
-
-        for y_index in range(num_states):
-            for x_index in range(max_time):
-                value = q_array[y_index, x_index, action]
-                if np.isnan(value):
-                    continue
-                color = "w" if (vmax - vmin) > 0 and (value - vmin) / (vmax - vmin) > 0.5 else "black"
-                axes[index].text(
-                    x_index,
-                    y_index,
-                    f"{value:.2f}",
-                    ha="center",
-                    va="center",
-                    color=color,
-                    fontsize=8,
-                )
-        fig.colorbar(im, ax=axes[index])
-
-    plt.tight_layout()
-    filepath = FIGURES_DIR / f"{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}_q_values_with_time.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
-
-
-def plot_q_values(q_agent: BaseAgent, show: bool = True):
-    fig, ax = plt.subplots(figsize=(6, 4))
-    im = ax.imshow(q_agent.q_table.to_array())
-    maze = q_agent.maze
-    ax.set_title("Q-values")
-    ax.set_xlabel("Actions")
-    ax.set_xticks(list(range(maze.num_actions)))
-    ax.set_xticklabels(maze.action_labels)
-    ax.set_ylabel("States")
-    ax.set_yticks(range(maze.num_states))
-    ax.set_yticklabels(maze.state_labels or [f"State {state}" for state in range(maze.num_states)])
-    plt.colorbar(im, ax=ax)
-    plt.tight_layout()
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
-    return fig
-
-
-def plot_cumulative_reward(trajectory: Trajectory, save: bool = False, show: bool = True):
-    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
-    _draw_cumulative_reward(ax, trajectory)
-    filepath = FIGURES_DIR / "cumulative_reward.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
-
-
-def plot_residency_location(
-    trajectory: Trajectory,
-    maze: Maze,
-    save: bool = False,
-    show: bool = True,
-):
-    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
-    _draw_residency_location(ax, trajectory, maze)
-    filepath = FIGURES_DIR / "residency_location.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
-
-
-def plot_trajectory_stats(
-    trajectory: Trajectory,
-    maze: Maze,
-    source: PolicyInput,
-    save: bool = False,
-    show: bool = True,
-):
-    fig, (ax_reward, ax_residency) = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
-    _draw_cumulative_reward(ax_reward, trajectory)
-    _draw_residency_location(ax_residency, trajectory, maze)
-    fig.suptitle(f"Trajectory Overview: '{_policy_label(source)}'", fontsize=16, fontweight="bold")
-    filepath = FIGURES_DIR / f"trajectory_stats_{_policy_artifact_label(source)}.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
 
 
 def _draw_mean_cumulative_reward(ax: plt.Axes, trajectories: list[Trajectory]) -> None:
@@ -618,31 +387,6 @@ def _draw_modal_residency(ax: plt.Axes, trajectories: list[Trajectory], maze: Ma
     ax.set_xlabel("Transition", fontsize=12)
     ax.set_ylabel("Location", fontsize=12)
     ax.set_title(f"Modal Residency Location (n={len(trajectories)})", fontsize=14)
-
-
-def plot_mean_cumulative_reward(
-    trajectories: list[Trajectory],
-    save: bool = False,
-    show: bool = True,
-):
-    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
-    _draw_mean_cumulative_reward(ax, trajectories)
-    filepath = FIGURES_DIR / "mean_cumulative_reward.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
-
-
-def plot_modal_residency(
-    trajectories: list[Trajectory],
-    maze: MazeMDP,
-    save: bool = False,
-    show: bool = True,
-):
-    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
-    _draw_modal_residency(ax, trajectories, maze)
-    filepath = FIGURES_DIR / "modal_residency.png"
-    _finalize_figure(fig, save=save, show=show, filepath=filepath)
-    return fig
 
 
 def plot_mean_trajectory_stats(

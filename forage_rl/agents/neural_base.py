@@ -18,7 +18,6 @@ from forage_rl.utils.torch_support import require_torch, resolve_device
 
 if TYPE_CHECKING:
     from forage_rl.environments import Maze
-    from forage_rl.types import Trajectory
 
 
 class NeuralContext(TypedDict):
@@ -304,34 +303,6 @@ class NeuralAgentBase(BaseAgent):
             "feature_components": list(self.feature_schema_components),
             "context_mode": self.context_mode,
         }
-
-    def context_trace(self, trajectory: "Trajectory") -> list[dict[str, object]]:
-        """Return the exact per-step context features used for one episode."""
-        rows: list[dict[str, object]] = []
-        context = self.initial_context()
-        for step_index, transition in enumerate(trajectory.transitions):
-            time_spent = getattr(transition, "time_spent", 0)
-            encoded_feature = self.encode_feature_array(
-                transition.state,
-                time_spent,
-                prev_action=context["prev_action"],
-                prev_reward=context["prev_reward"],
-            )
-            rows.append(
-                {
-                    "step_index": step_index,
-                    "state": int(transition.state),
-                    "time_spent": int(time_spent),
-                    "prev_action": context["prev_action"],
-                    "prev_reward": float(context["prev_reward"]),
-                    "action": int(transition.action),
-                    "reward": float(transition.reward),
-                    "next_state": int(transition.next_state),
-                    "encoded_feature": encoded_feature,
-                }
-            )
-            context = self.next_context(transition.action, transition.reward)
-        return rows
 
     def sync_target_network(self) -> None:
         """Copy online-network weights into the target network."""

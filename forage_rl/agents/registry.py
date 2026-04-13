@@ -47,9 +47,6 @@ NEURAL_CONTEXT_MODE_DISPLAY_LABELS: dict[NeuralContextMode, str] = {
     "prev_reward_time": "obs+prev_reward+time",
     "legacy_context": "legacy-context",
 }
-NEURAL_CONTEXT_MODE_ORDER: dict[NeuralContextMode, int] = {
-    context_mode: index for index, context_mode in enumerate(NEURAL_CONTEXT_MODES)
-}
 CANONICAL_AGENT_ALIASES: dict[Agent, Agent] = {
     Agent.DRQN: Agent.LSTM,
 }
@@ -91,11 +88,6 @@ def is_neural_agent(agent: Agent) -> bool:
     return canonical_agent(agent) in CANONICAL_NEURAL_AGENTS
 
 
-def is_recurrent_agent(agent: Agent) -> bool:
-    """Return whether an agent uses a recurrent Q-network."""
-    return canonical_agent(agent) in CANONICAL_RECURRENT_AGENTS
-
-
 def agent_display_label(agent: Agent) -> str:
     """Return the canonical display label for an agent."""
     resolved = canonical_agent(agent)
@@ -129,10 +121,6 @@ def context_mode_token(context_mode: NeuralContextMode) -> str:
 
 def context_mode_display_label(context_mode: NeuralContextMode) -> str:
     return NEURAL_CONTEXT_MODE_DISPLAY_LABELS[context_mode]
-
-
-def context_mode_sort_key(context_mode: NeuralContextMode) -> int:
-    return NEURAL_CONTEXT_MODE_ORDER[context_mode]
 
 
 @dataclass(frozen=True)

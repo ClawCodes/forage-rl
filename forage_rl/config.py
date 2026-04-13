@@ -41,8 +41,6 @@ class DefaultParams:
     # Value iteration parameters
     NUM_PLANNING_STEPS = 10
     CONVERGENCE_THRESHOLD = 0.01
-    MAX_TIME_SPENT = 10
-
     # Neural agent parameters
     NEURAL_FEATURE_SCHEMA_VERSION = 2
     LEARNING_RATE = 1e-3

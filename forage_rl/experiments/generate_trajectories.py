@@ -271,35 +271,6 @@ def run_generation_experiment(
     print("\nTrajectory generation complete!")
 
 
-def generate_trajectories(
-    agent_type: Agent,
-    maze_name: str = "simple",
-    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
-    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
-    observable: bool = True,
-    verbose: bool = True,
-    workers: int | None = None,
-    base_seed: int | None = None,
-    device: str = "auto",
-    context_mode: NeuralContextMode = "legacy_context",
-    horizon: int | None = None,
-) -> None:
-    """Generate trajectories from a single registered agent."""
-    run_generation_experiment(
-        agent_types=[agent_type],
-        maze_name=maze_name,
-        num_runs=num_runs,
-        num_episodes=num_episodes,
-        observable=observable,
-        verbose=verbose,
-        workers=workers,
-        base_seed=base_seed,
-        device=device,
-        context_mode=context_mode,
-        horizon=horizon,
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate training trajectories")
     parser.add_argument(

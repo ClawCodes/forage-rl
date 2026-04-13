@@ -234,10 +234,6 @@ class RecurrentQAgent(NeuralAgentBase):
             windows.append(self._sample_window_from_episode(episode))
         return windows
 
-    def _sample_sequences(self) -> list[list[dict[str, object]]]:
-        """Backward-compatible view of sampled replay windows as plain sequences."""
-        return [window["steps"] for window in self._sample_windows()]
-
     def _build_batch_tensors(
         self,
         windows: list[SampledRecurrentWindow] | list[list[dict[str, object]]],

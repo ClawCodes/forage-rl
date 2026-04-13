@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 
-from forage_rl import RunDataset, Trajectory
+from forage_rl import RunDataset
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.agents.registry import (
     Agent,
@@ -93,40 +93,6 @@ def _parse_evaluators(
         )
 
     return evaluators
-
-
-def evaluate_trajectory(
-    trajectory: Trajectory,
-    maze_name: str = "simple",
-    evaluators: list[EvaluatorInput] | None = None,
-    observable: bool = True,
-    device: str = "auto",
-    seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
-    source_context_mode: NeuralContextMode = "legacy_context",
-    horizon: int | None = None,
-) -> dict[EvaluatorSpec, np.ndarray]:
-    """Evaluate one episode under each specified agent model."""
-    if evaluators is None:
-        evaluators = registered_agents()
-
-    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
-    maze_spec = load_builtin_maze_spec(maze_name)
-    maze_cls = Maze if observable else MazePOMDP
-    results = {}
-    for evaluator in (_normalize_evaluator(item) for item in evaluators):
-        if is_neural_agent(evaluator.agent):
-            configure_torch_worker(device)
-        agent = get_agent(
-            evaluator.agent,
-            maze_cls(maze_spec, horizon=resolved_horizon),
-            device=device,
-            init_mode=evaluator.mode,
-            checkpoint_path=evaluator.checkpoint_path,
-            context_mode=evaluator.context_mode,
-            seed=seed,
-        )
-        results[evaluator] = np.array(agent.simulate(trajectory))
-    return results
 
 
 def _build_evaluator_agents(

@@ -110,14 +110,6 @@ class ValueIterationSolver:
 
         return self.V, self.policy
 
-    def print_value_function(self):
-        """Print the value function for each state and time step."""
-        print("Value Function:")
-        for s in range(self.maze.num_states):
-            print(f"State {s}:")
-            for t in range(self.maze.horizon):
-                print(f"  Time {t}: {self.V[s, t]:.2f}")
-
     def print_policy(self):
         """Print the optimal policy for each state and time step."""
         print("\nOptimal Policy:")

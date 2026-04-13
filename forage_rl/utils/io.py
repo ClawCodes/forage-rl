@@ -433,37 +433,6 @@ def list_run_dataset_run_ids(
     )
 
 
-def list_logprob_files(
-    label: Optional[str] = None,
-    maze_name: Optional[str] = None,
-    observable: Optional[bool] = None,
-    horizon: int | None = None,
-) -> list[Path]:
-    """List all log probability files in the data directory."""
-    if not LOGPROBS_DIR.exists():
-        return []
-    if horizon is not None and (maze_name is None or observable is None):
-        raise ValueError(
-            "maze_name and observable are required when filtering logprobs by horizon."
-        )
-
-    exact_prefix = maze_name is not None and observable is not None
-    if exact_prefix:
-        prefix = artifact_prefix(maze_name, observable, horizon)
-    else:
-        maze_part = maze_name or "*"
-        obs_part = obs_tag(observable) if observable is not None else "*"
-        prefix = f"{maze_part}_{obs_part}"
-    label_part = label or "*"
-    pattern = f"{prefix}_{label_part}_log_likelihoods_*.npy"
-    return sorted(
-        path
-        for path in LOGPROBS_DIR.glob(pattern)
-        if (not exact_prefix)
-        or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
-    )
-
-
 # Re-export the extracted naming helpers to keep the current private module API stable.
 _obs_tag = obs_tag
 _artifact_prefix = artifact_prefix
