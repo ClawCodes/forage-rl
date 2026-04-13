@@ -1,7 +1,12 @@
 """Environment modules for foraging maze simulations."""
 
 from .maze import ForagingReward, Maze, SimpleMaze
-from .spec_loader import load_builtin_maze_spec, load_maze_spec
+from .spec_loader import (
+    builtin_maze_horizon,
+    load_builtin_maze_spec,
+    load_maze_spec,
+    resolve_effective_horizon,
+)
 from .specs import MazeSpec
 
 __all__ = [
@@ -9,6 +14,8 @@ __all__ = [
     "Maze",
     "SimpleMaze",
     "MazeSpec",
+    "builtin_maze_horizon",
     "load_maze_spec",
     "load_builtin_maze_spec",
+    "resolve_effective_horizon",
 ]

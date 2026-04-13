@@ -102,6 +102,74 @@ class QTable:
                     result[s, global_a] = self._data[s][local_idx]
         return result
 
+    def __getitem__(self, key):
+        """Support legacy tuple indexing for row and scalar access."""
+        if not isinstance(key, tuple):
+            key = (key,)
+
+        if self.timed:
+            if len(key) == 2:
+                state, time = key
+                return self.action_values(state, time)
+            if len(key) == 3:
+                state, time, action = key
+                return self.get(state, action, time)
+        else:
+            if len(key) == 1:
+                (state,) = key
+                return self.action_values(state)
+            if len(key) == 2:
+                state, action = key
+                return self.get(state, action)
+
+        raise TypeError(
+            "QTable indices must be (state, time), (state, time, action), "
+            "(state,), or (state, action) depending on timed mode."
+        )
+
+    def __setitem__(self, key, value) -> None:
+        """Support legacy tuple indexing for row and scalar assignment."""
+        if not isinstance(key, tuple):
+            key = (key,)
+
+        if self.timed:
+            if len(key) == 2:
+                state, time = key
+                row = np.asarray(value, dtype=float)
+                expected_width = self.num_valid_actions(state)
+                if row.shape != (expected_width,):
+                    raise ValueError(
+                        f"Expected row shape {(expected_width,)} for state={state}, "
+                        f"time={time}, got {row.shape}."
+                    )
+                self._data[state][time, :] = row
+                return
+            if len(key) == 3:
+                state, time, action = key
+                self.set(state, action, float(value), time)
+                return
+        else:
+            if len(key) == 1:
+                (state,) = key
+                row = np.asarray(value, dtype=float)
+                expected_width = self.num_valid_actions(state)
+                if row.shape != (expected_width,):
+                    raise ValueError(
+                        f"Expected row shape {(expected_width,)} for state={state}, "
+                        f"got {row.shape}."
+                    )
+                self._data[state][:] = row
+                return
+            if len(key) == 2:
+                state, action = key
+                self.set(state, action, float(value))
+                return
+
+        raise TypeError(
+            "QTable indices must be (state, time), (state, time, action), "
+            "(state,), or (state, action) depending on timed mode."
+        )
+
     def valid_actions(self, state: int) -> list[int]:
         """Return valid global action indices for state."""
         try:

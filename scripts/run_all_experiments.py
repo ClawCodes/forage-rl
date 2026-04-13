@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Batch wrapper: runs forage CLI for every agent pair × maze × observability."""
+"""Batch wrapper: runs the forage CLI for every agent pair, maze, and observability."""
+
+from __future__ import annotations
 
 import subprocess
 import sys
 from itertools import permutations
 
 AGENTS = ["mbrl", "q_learning"]
-# MAZES = ["simple", "simple_one_way", "full", "full_one_way"]
 MAZES = ["simple_one_way", "full_one_way"]
 NUM_RUNS = 100
 NUM_EPISODES = 6
 
 
-def run_experiment(source, compare_to, maze, pomdp):
+def run_experiment(source: str, compare_to: str, maze: str, pomdp: bool) -> None:
     cmd = [
         "forage",
         "--source",
@@ -23,9 +24,12 @@ def run_experiment(source, compare_to, maze, pomdp):
         str(NUM_RUNS),
         "--num-episodes",
         str(NUM_EPISODES),
+        "--num-datasets",
+        str(NUM_RUNS),
         "--maze",
         maze,
         "--quiet",
+        "--yes",
     ]
     if pomdp:
         cmd.append("--pomdp")
@@ -34,13 +38,12 @@ def run_experiment(source, compare_to, maze, pomdp):
     print(f"\n{'=' * 60}\n{label}\n{'=' * 60}")
     print(f"  cmd: {' '.join(cmd)}")
 
-    # Pipe "y" for each agent's overwrite prompt (one per agent in the pair)
-    result = subprocess.run(cmd, input="y\ny\n", text=True)
+    result = subprocess.run(cmd)
     if result.returncode != 0:
         print(f"[FAILED] {label} — exit code {result.returncode}", file=sys.stderr)
 
 
-def main():
+def main() -> None:
     pairs = list(permutations(AGENTS, 2))
     total = len(pairs) * len(MAZES) * 2
     print(f"Running {total} experiment combinations...")

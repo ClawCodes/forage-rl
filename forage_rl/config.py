@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 TRAJECTORIES_DIR = DATA_DIR / "trajectories"
 LOGPROBS_DIR = DATA_DIR / "logprobs"
+CHECKPOINTS_DIR = DATA_DIR / "checkpoints"
 FIGURES_DIR = BASE_DIR / "outputs" / "figures"
 MAZE_SPECS_DIR = BASE_DIR / "forage_rl" / "environments" / "maze_specs"
 
@@ -15,10 +16,10 @@ def ensure_directories():
     """Create output directories if they don't exist."""
     TRAJECTORIES_DIR.mkdir(parents=True, exist_ok=True)
     LOGPROBS_DIR.mkdir(parents=True, exist_ok=True)
+    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# Default hyperparameters
 class DefaultParams:
     """Default constants used across training, inference, and planning."""
 
@@ -31,12 +32,31 @@ class DefaultParams:
     # Training parameters
     NUM_EPISODES = 200
     NUM_TRAINING_RUNS = 100  # Number of trajectory files to generate
-    NUM_TRAINING_EPISODES = 6  # Episodes per training run for trajectory generation
+    NUM_TRAINING_EPISODES = 100  # Episodes per generated run dataset
 
     # Environment parameters
     HORIZON = 100  # Maximum timesteps per episode
+    MAX_TIME_SPENT = 10
 
     # Value iteration parameters
     NUM_PLANNING_STEPS = 10
     CONVERGENCE_THRESHOLD = 0.01
-    MAX_TIME_SPENT = 10
+
+    # Successor representation parameters
+    ALPHA_SR = 0.3  # SR matrix learning rate
+    ALPHA_W = 0.3  # Reward weight learning rate
+    ALPHA_PI = 0.1  # Policy learning rate (SR-MB only)
+    K_REPLAY = 10  # Replay steps per transition (SR-Dyna)
+
+    # Neural agent parameters
+    NEURAL_FEATURE_SCHEMA_VERSION = 2
+    LEARNING_RATE = 1e-3
+    REPLAY_CAPACITY = 4096
+    BATCH_SIZE = 64
+    RECURRENT_HIDDEN_SIZE = 64
+    RECURRENT_NUM_LAYERS = 1
+    RECURRENT_SEQUENCE_LENGTH = 16
+    RECURRENT_BURN_IN = 0
+    TARGET_UPDATE_INTERVAL = 50
+    GRADIENT_CLIP = 5.0
+    FRESH_EVALUATOR_SEED = 0

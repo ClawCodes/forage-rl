@@ -4,6 +4,7 @@ import numpy as np
 
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
+from forage_rl.environments.maze import MazePOMDP
 
 
 class ValueIterationSolver:
@@ -20,6 +21,16 @@ class ValueIterationSolver:
         gamma: float = DefaultParams.GAMMA,
         convergence_threshold: float = DefaultParams.CONVERGENCE_THRESHOLD,
     ):
+        if isinstance(maze, MazePOMDP):
+            raise ValueError(
+                "ValueIterationSolver does not support MazePOMDP because it requires "
+                "belief-state planning."
+            )
+        if maze.maze_spec.uses_transition_durations:
+            raise ValueError(
+                "ValueIterationSolver does not support maze specs with explicit "
+                "transition durations."
+            )
         self.maze = maze
         self.gamma = gamma
         self.threshold = convergence_threshold
@@ -34,8 +45,7 @@ class ValueIterationSolver:
         For leave action, reward is 0 (travel cost).
         """
         if action == 0:  # Stay
-            decay = self.maze.decays[state]
-            return np.exp(-decay * time)
+            return self.maze.expected_stay_reward(state, time)
         else:  # Leave
             return 0.0
 
@@ -99,14 +109,6 @@ class ValueIterationSolver:
             print(f"Converged in {iterations} iterations")
 
         return self.V, self.policy
-
-    def print_value_function(self):
-        """Print the value function for each state and time step."""
-        print("Value Function:")
-        for s in range(self.maze.num_states):
-            print(f"State {s}:")
-            for t in range(self.maze.horizon):
-                print(f"  Time {t}: {self.V[s, t]:.2f}")
 
     def print_policy(self):
         """Print the optimal policy for each state and time step."""
