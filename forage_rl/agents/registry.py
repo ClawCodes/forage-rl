@@ -6,6 +6,9 @@ from typing import Callable
 from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.model_based import MBRL
 from forage_rl.agents.q_learning import QLearningTime
+from forage_rl.agents.sr_td import SRTDAgent
+from forage_rl.agents.sr_mb import SRMBAgent
+from forage_rl.agents.sr_dyna import SRDynaAgent
 from forage_rl.config import DefaultParams
 
 AgentFactory = Callable[..., BaseAgent]
@@ -14,6 +17,9 @@ AgentFactory = Callable[..., BaseAgent]
 class Agent(StrEnum):
     MBRL = "mbrl"
     QLearning = "q_learning"
+    SRTD = "sr_td"
+    SRMB = "sr_mb"
+    SRDyna = "sr_dyna"
 
 
 AGENT_REGISTRY: dict[Agent, AgentFactory] = {
@@ -23,6 +29,15 @@ AGENT_REGISTRY: dict[Agent, AgentFactory] = {
     Agent.QLearning: lambda maze,
     num_episodes=DefaultParams.NUM_EPISODES: QLearningTime(
         maze, num_episodes=num_episodes, alpha=DefaultParams.ALPHA
+    ),
+    Agent.SRTD: lambda maze, num_episodes=DefaultParams.NUM_EPISODES: SRTDAgent(
+        maze, num_episodes=num_episodes
+    ),
+    Agent.SRMB: lambda maze, num_episodes=DefaultParams.NUM_EPISODES: SRMBAgent(
+        maze, num_episodes=num_episodes
+    ),
+    Agent.SRDyna: lambda maze, num_episodes=DefaultParams.NUM_EPISODES: SRDynaAgent(
+        maze, num_episodes=num_episodes
     ),
 }
 

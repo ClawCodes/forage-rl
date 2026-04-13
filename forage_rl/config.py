@@ -40,3 +40,9 @@ class DefaultParams:
     NUM_PLANNING_STEPS = 10
     CONVERGENCE_THRESHOLD = 0.01
     MAX_TIME_SPENT = 10
+
+    # Successor representation parameters
+    ALPHA_SR = 0.3  # SR matrix learning rate
+    ALPHA_W = 0.3  # Reward weight learning rate
+    ALPHA_PI = 0.1  # Policy learning rate (SR-MB only)
+    K_REPLAY = 10  # Replay steps per transition (SR-Dyna)
