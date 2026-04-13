@@ -7,7 +7,7 @@ from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
 
 from ..types import Transition
-from .base import BaseAgent
+from .base import BaseAgent, ensure_time_spent_compatible
 from .q_table import QTable
 
 
@@ -113,6 +113,7 @@ class QLearningTime(BaseAgent):
         seed: int | None = None,
     ):
         super().__init__(maze, beta, seed=seed)
+        ensure_time_spent_compatible(maze, consumer=type(self).__name__)
         self.num_episodes = num_episodes
         self.alpha = alpha
         self.gamma = gamma

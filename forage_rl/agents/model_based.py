@@ -8,6 +8,7 @@ from forage_rl.config import DefaultParams
 from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.environments import Maze
 from forage_rl.environments.maze import MazePOMDP
+from .base import ensure_time_spent_compatible
 
 
 class MBRL(BaseAgent):
@@ -29,6 +30,7 @@ class MBRL(BaseAgent):
         seed: int | None = None,
     ):
         super().__init__(maze, beta, seed=seed)
+        ensure_time_spent_compatible(maze, consumer=type(self).__name__)
         self.num_episodes = num_episodes
         self.gamma = gamma
         self.num_planning_steps = num_planning_steps

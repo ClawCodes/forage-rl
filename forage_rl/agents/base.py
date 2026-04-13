@@ -30,7 +30,9 @@ class BaseAgent(ABC):
 
     def boltzmann_action_probs(self, q_values: np.ndarray) -> np.ndarray:
         """Compute Boltzmann (softmax) action probabilities."""
-        exp_values = np.exp(q_values * self.beta)
+        scaled_q_values = np.asarray(q_values, dtype=float) * float(self.beta)
+        scaled_q_values -= np.max(scaled_q_values)
+        exp_values = np.exp(scaled_q_values)
         return exp_values / np.sum(exp_values)
 
     def choose_action_boltzmann(self, q_values: np.ndarray) -> int:
