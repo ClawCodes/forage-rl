@@ -60,8 +60,8 @@ class PerturbationSpec(BaseModel):
     observable: Optional[bool] = None
     # TODO: currently can't add/remove observation groups
 
-    states: List[StateSpec]
-    transitions: List[TransitionSpec]
+    states: Optional[List[StateSpec]] = None
+    transitions: Optional[List[TransitionSpec]] = None
 
 
 class MazeSpec(BaseModel):
@@ -156,7 +156,8 @@ class MazeSpec(BaseModel):
             state_id = int(state_key)
             transitions_raw = state_body.pop("transitions", {})
 
-            flat_states.append({"id": state_id, **state_body})
+            if state_body:
+                flat_states.append({"id": state_id, **state_body})
 
             for action_name, outcomes in transitions_raw.items():
                 action_idx = action_index.get(action_name)
@@ -216,7 +217,7 @@ class MazeSpec(BaseModel):
         action_labels = MazeSpec._get_action_labels(data)
         data["states"], data["transitions"] = MazeSpec._expand_states_transitions(action_labels, states_raw)
 
-        if "perturbation" in data:
+        if "perturbation" in data and "states" in data["perturbation"]:
             data["perturbation"]["states"], data["perturbation"]["transitions"] = \
                 MazeSpec._expand_states_transitions(action_labels, data["perturbation"]["states"])
 
@@ -236,20 +237,22 @@ class MazeSpec(BaseModel):
         if self.perturbation.observable is not None:
             perturbed_model["maze"]["observable"] = self.perturbation.observable
 
-        for state in self.perturbation.states:
-            id = state.id
-            if id < len(perturbed_model["states"]):
-                perturbed_model["states"][id] = state
-            else:
-                perturbed_model["states"].append(state)
+        if self.perturbation.states is not None:
+            for state in self.perturbation.states:
+                id = state.id
+                if id < len(perturbed_model["states"]):
+                    perturbed_model["states"][id] = state
+                else:
+                    perturbed_model["states"].append(state)
 
         # convert flat transitions to hierarchical list
         # enables checking if actions are removed during perturbation
         perturbed_transitions = {}
-        for transition in self.perturbation.transitions:
-            if transition.state not in perturbed_transitions:
-                perturbed_transitions[transition.state] = [None for _ in range(self.num_actions)]
-            perturbed_transitions[transition.state][transition.action] = transition
+        if self.perturbation.transitions is not None:
+            for transition in self.perturbation.transitions:
+                if transition.state not in perturbed_transitions:
+                    perturbed_transitions[transition.state] = [None for _ in range(self.num_actions)]
+                perturbed_transitions[transition.state][transition.action] = transition
 
         # Loop through the current list of transitions.
         # Transitions can be uniquely identified by state, action.

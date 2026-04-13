@@ -1,0 +1,76 @@
+[maze]
+name = "full_one_way_perturbed_revaluation"
+horizon = 700
+initial_state = 0
+action_labels = ["stay", "leave"]
+observation_labels = ["Upper Patch", "Lower Patch", "Corridor A", "Corridor B"]
+
+[states.0]
+label = "Upper Patch A"
+decay = 1.0
+observation_group = 0
+[states.0.transitions]
+stay = [[0, 1.0]]
+leave = [[6, 1.0]]
+
+[states.1]
+label = "Upper Patch B"
+decay = 5.0
+observation_group = 0
+[states.1.transitions]
+stay = [[1, 1.0]]
+leave = [[6, 1.0]]
+
+[states.2]
+label = "Upper Patch C"
+decay = 5.0
+observation_group = 0
+[states.2.transitions]
+stay = [[2, 1.0]]
+leave = [[6, 1.0]]
+
+[states.3]
+label = "Lower Patch A"
+decay = 1.0
+observation_group = 1
+[states.3.transitions]
+stay = [[3, 1.0]]
+leave = [[7, 1.0]]
+
+[states.4]
+label = "Lower Patch B"
+decay = 5.0
+observation_group = 1
+[states.4.transitions]
+stay = [[4, 1.0]]
+leave = [[7, 1.0]]
+
+[states.5]
+label = "Lower Patch C"
+decay = 5.0
+observation_group = 1
+[states.5.transitions]
+stay = [[5, 1.0]]
+leave = [[7, 1.0]]
+
+[states.6]
+label = "Corridor A"
+decay = 99.0
+observation_group = 2
+[states.6.transitions]
+leave = [[3, 0.15], [4, 0.35], [5, 0.50]]
+
+[states.7]
+label = "Corridor B"
+decay = 99.0
+observation_group = 3
+[states.7.transitions]
+leave = [[0, 0.15], [1, 0.35], [2, 0.50]]
+
+[perturbation]
+perturbation_time = 350
+
+[perturbation.states.0]
+label = "Upper Patch A"
+decay = 0.1
+observation_group = 0

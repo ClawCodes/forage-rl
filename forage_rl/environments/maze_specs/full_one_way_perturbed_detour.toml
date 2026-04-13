@@ -1,0 +1,130 @@
+[maze]
+name = "full_one_way_perturbed_detour"
+horizon = 700
+initial_state = 0
+action_labels = ["stay", "leave1", "leave2"]
+observation_labels = ["Upper Patch", "Lower Patch", "Corridor A1", "Corridor A2.1", "Corridor A2.2", "Corridor B1", "Corridor B2.1", "Corridor B2.2"]
+
+[states.0]
+label = "Upper Patch A"
+decay = 10
+observation_group = 0
+[states.0.transitions]
+stay = [[0, 1.0]]
+leave1 = [[6, 1.0]]
+leave2 = [[7, 1.0]]
+
+[states.1]
+label = "Upper Patch B"
+decay = 10
+observation_group = 0
+[states.1.transitions]
+stay = [[1, 1.0]]
+leave1 = [[6, 1.0]]
+leave2 = [[7, 1.0]]
+
+[states.2]
+label = "Upper Patch C"
+decay = 10
+observation_group = 0
+[states.2.transitions]
+stay = [[2, 1.0]]
+leave1 = [[6, 1.0]]
+leave2 = [[7, 1.0]]
+
+[states.3]
+label = "Lower Patch A"
+decay = 10
+observation_group = 1
+[states.3.transitions]
+stay = [[3, 1.0]]
+leave1 = [[9, 1.0]]
+leave2 = [[10, 1.0]]
+
+[states.4]
+label = "Lower Patch B"
+decay = 10
+observation_group = 1
+[states.4.transitions]
+stay = [[4, 1.0]]
+leave1 = [[9, 1.0]]
+leave2 = [[10, 1.0]]
+
+[states.5]
+label = "Lower Patch C"
+decay = 10
+observation_group = 1
+[states.5.transitions]
+stay = [[5, 1.0]]
+leave1 = [[9, 1.0]]
+leave2 = [[10, 1.0]]
+
+[states.6]
+label = "Corridor A1"
+decay = 99.0
+observation_group = 2
+[states.6.transitions]
+leave1 = [[3, 0.15], [4, 0.35], [5, 0.50]]
+
+[states.7]
+label = "Corridor A2.1"
+decay = 99.0
+observation_group = 3
+[states.7.transitions]
+leave1 = [[8, 1.0]]
+
+[states.8]
+label = "Corridor A2.2"
+decay = 99.0
+observation_group = 4
+[states.8.transitions]
+leave1 = [[3, 0.15], [4, 0.35], [5, 0.50]]
+
+[states.9]
+label = "Corridor B1"
+decay = 99.0
+observation_group = 5
+[states.9.transitions]
+leave1 = [[0, 0.15], [1, 0.35], [2, 0.50]]
+
+[states.10]
+label = "Corridor B2.1"
+decay = 99.0
+observation_group = 6
+[states.10.transitions]
+leave1 = [[11, 1.0]]
+
+[states.11]
+label = "Corridor B2.2"
+decay = 99.0
+observation_group = 7
+[states.11.transitions]
+leave1 = [[0, 0.15], [1, 0.35], [2, 0.50]]
+
+
+[perturbation]
+perturbation_time = 350
+
+[perturbation.states.0.transitions]
+stay = [[0, 1.0]]
+leave2 = [[7, 1.0]]
+
+[perturbation.states.1.transitions]
+stay = [[1, 1.0]]
+leave2 = [[7, 1.0]]
+
+[perturbation.states.2.transitions]
+stay = [[2, 1.0]]
+leave2 = [[7, 1.0]]
+
+[perturbation.states.3.transitions]
+stay = [[3, 1.0]]
+leave2 = [[10, 1.0]]
+
+[perturbation.states.4.transitions]
+stay = [[4, 1.0]]
+leave2 = [[10, 1.0]]
+
+[perturbation.states.5.transitions]
+stay = [[5, 1.0]]
+leave2 = [[10, 1.0]]
