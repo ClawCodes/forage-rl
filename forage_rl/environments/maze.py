@@ -167,6 +167,15 @@ class Maze(gym.Env):
         self._validate_action(action_idx)
         return self.action_labels[action_idx]
 
+    def valid_actions(self, state_idx: int) -> list[int]:
+        """Return the globally indexed actions available from a state."""
+        self._validate_state(state_idx)
+        return [
+            action_idx
+            for action_idx in range(self.num_actions)
+            if (state_idx, action_idx) in self._transitions_by_state_action
+        ]
+
     def transition_distribution(
         self, state_idx: int, action_idx: int
     ) -> list[tuple[int, float]]:
@@ -342,6 +351,21 @@ class MazePOMDP(Maze):
         state_idx = self.state if state is None else state
         self._validate_state(state_idx)
         return self._state_to_observation_group[state_idx]
+
+    def valid_actions(self, state_idx: int) -> list[int]:
+        """Return the actions that are legal for an observation group."""
+        self._validate_observation(state_idx)
+        concrete_states = self._observation_group_to_states[state_idx]
+        reference_actions = super().valid_actions(concrete_states[0])
+        for concrete_state in concrete_states[1:]:
+            concrete_actions = super().valid_actions(concrete_state)
+            if concrete_actions != reference_actions:
+                raise ValueError(
+                    "Observation-group action availability is ill-defined because "
+                    f"hidden states in observation group {state_idx} do not share "
+                    "the same valid actions."
+                )
+        return list(reference_actions)
 
     def planning_transition_distribution(
         self,
