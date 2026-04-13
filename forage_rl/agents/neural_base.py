@@ -29,7 +29,9 @@ class NeuralAgentBase(BaseAgent):
     """Shared PyTorch-backed logic for neural agents."""
 
     agent_name: Agent
-    feature_schema_components_by_context_mode: dict[NeuralContextMode, tuple[str, ...]] = {
+    feature_schema_components_by_context_mode: dict[
+        NeuralContextMode, tuple[str, ...]
+    ] = {
         "observation_only": ("observation_one_hot",),
         "prev_reward": ("observation_one_hot", "prev_reward"),
         "prev_reward_time": (
@@ -131,7 +133,8 @@ class NeuralAgentBase(BaseAgent):
         self.device = resolve_device(device)
         self.obs_dim = int(maze.observation_space.n)  # type: ignore[attr-defined]
         self._valid_actions_by_state = tuple(
-            tuple(self.maze.valid_actions(state_idx)) for state_idx in range(self.obs_dim)
+            tuple(self.maze.valid_actions(state_idx))
+            for state_idx in range(self.obs_dim)
         )
         self.feature_schema_version = DefaultParams.NEURAL_FEATURE_SCHEMA_VERSION
         self.feature_schema_components = self._feature_components_for_context_mode(
@@ -162,7 +165,11 @@ class NeuralAgentBase(BaseAgent):
 
         effective_path = checkpoint_path_override or checkpoint_path
         if self.init_mode == "pretrained":
-            resolved_path = self._default_checkpoint_path() if effective_path is None else Path(effective_path)
+            resolved_path = (
+                self._default_checkpoint_path()
+                if effective_path is None
+                else Path(effective_path)
+            )
             self._validate_checkpoint_horizon_metadata(
                 resolved_path,
                 requires_metadata=effective_path is None,
@@ -261,10 +268,7 @@ class NeuralAgentBase(BaseAgent):
         if "normalized_time_spent" in self.feature_schema_components:
             feature_parts.append(
                 np.array(
-                    [
-                        float(min(time_spent, self.maze.horizon - 1))
-                        / float(horizon)
-                    ],
+                    [float(min(time_spent, self.maze.horizon - 1)) / float(horizon)],
                     dtype=np.float32,
                 )
             )

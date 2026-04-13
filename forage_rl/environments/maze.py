@@ -51,7 +51,9 @@ class ForagingReward:
             assert self.decay is not None
             reward_prob = self.initial_reward_prob * np.exp(-self.decay * self.counter)
         else:
-            reward_prob = self.reward_probs[min(self.counter, len(self.reward_probs) - 1)]
+            reward_prob = self.reward_probs[
+                min(self.counter, len(self.reward_probs) - 1)
+            ]
         self.counter += 1
         return 1.0 if self.rng.random() < reward_prob else 0.0
 

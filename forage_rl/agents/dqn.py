@@ -10,6 +10,7 @@ from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.neural_base import NeuralAgentBase
 from forage_rl.agents.registry import Agent
 
+
 class DQNAgent(NeuralAgentBase):
     """DQN with replay, target networks, and Boltzmann action selection."""
 
@@ -24,7 +25,9 @@ class DQNAgent(NeuralAgentBase):
     ):
         super().__init__(maze, **kwargs)
         self.replay_buffer = deque(maxlen=self.replay_capacity)
-        resolved_warmup_steps = self.batch_size if warmup_steps is None else warmup_steps
+        resolved_warmup_steps = (
+            self.batch_size if warmup_steps is None else warmup_steps
+        )
         self._require_non_negative_int("warmup_steps", resolved_warmup_steps)
         self.warmup_steps = int(resolved_warmup_steps)
 

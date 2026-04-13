@@ -106,7 +106,9 @@ def regenerate_artifacts(
     evaluators = filter_evaluators(default_evaluators(), evaluator_mode)
     resolved_num_datasets = num_runs if num_datasets is None else num_datasets
 
-    for maze_name, observable in selected_settings(mazes, observability, verbose=verbose):
+    for maze_name, observable in selected_settings(
+        mazes, observability, verbose=verbose
+    ):
         obs_tag = "FO" if observable else "PO"
         if verbose:
             print(f"\n=== Setting: maze={maze_name}, observable={obs_tag} ===")
@@ -279,7 +281,9 @@ def main() -> None:
             "comparison plots. Tabular evaluators are always kept."
         ),
     )
-    parser.add_argument("--quiet", action="store_true", help="Suppress progress output.")
+    parser.add_argument(
+        "--quiet", action="store_true", help="Suppress progress output."
+    )
 
     args = parser.parse_args()
     if args.evaluator_mode == "fresh" and args.train_pretrained:

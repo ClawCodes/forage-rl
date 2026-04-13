@@ -173,7 +173,9 @@ class EvaluatorSpec:
 
 def _filtered_kwargs(kwargs: dict) -> dict:
     return {
-        key: value for key, value in kwargs.items() if key not in _NON_CONSTRUCTOR_KWARGS
+        key: value
+        for key, value in kwargs.items()
+        if key not in _NON_CONSTRUCTOR_KWARGS
     }
 
 

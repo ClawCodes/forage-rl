@@ -72,7 +72,9 @@ def resolve_device(device: str = "auto") -> str:
             or not mps_backend.is_built()
             or not mps_backend.is_available()
         ):
-            raise ValueError("Requested device 'mps', but Apple Metal (MPS) is unavailable.")
+            raise ValueError(
+                "Requested device 'mps', but Apple Metal (MPS) is unavailable."
+            )
 
     return normalized
 
