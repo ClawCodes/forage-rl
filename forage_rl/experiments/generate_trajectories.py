@@ -3,7 +3,7 @@
 import argparse
 
 from forage_rl.agents.registry import Agent
-from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
+from forage_rl.environments import Maze, load_builtin_maze_spec
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.utils import save_trajectories
 from forage_rl.config import DefaultParams, ensure_directories
@@ -34,8 +34,7 @@ def generate_trajectories(
         if verbose:
             print(f"\n{'=' * 50}\n{agent_type} Run {i + 1}/{num_runs}\n{'=' * 50}")
 
-        maze_cls = Maze if observable else MazePOMDP
-        maze = maze_cls(maze_spec)
+        maze = Maze(maze_spec, observable=observable)
         agent = get_agent(agent_type, maze, num_episodes=num_episodes)
         transitions = agent.train(verbose=False)
 

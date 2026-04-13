@@ -3,7 +3,6 @@
 import numpy as np
 
 from forage_rl.environments import Maze
-from forage_rl.environments.maze import MazePOMDP
 
 
 class InvalidState(Exception):
@@ -36,7 +35,7 @@ class QTable:
         self.num_actions = maze.num_actions
 
         # {<state>: [<state action_1>,...,<state action_N>]}
-        if isinstance(maze, MazePOMDP):
+        if maze.observable:
             obs_to_rep: dict[int, int] = {}
             for concrete_state, obs_group in maze._state_to_observation_group.items():
                 if obs_group not in obs_to_rep:

@@ -9,7 +9,7 @@ import numpy as np
 from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.registry import Agent
 from forage_rl.config import FIGURES_DIR, ensure_directories
-from forage_rl.environments.maze import Maze, MazeMDP, MazePOMDP
+from forage_rl.environments.maze import Maze
 from forage_rl.environments.maze import maze_from_builtin_maze_spec
 from forage_rl.types import Trajectory
 from forage_rl.utils import get_run_count, load_logprobs, load_trajectories
@@ -486,7 +486,7 @@ def _draw_modal_residency(
     min_len = min(len(s) for s in state_seqs)
     arr = np.array([s[:min_len] for s in state_seqs])  # (n_trajs, min_len)
 
-    if isinstance(maze, MazePOMDP):
+    if maze.observable:
         obs_map = maze._state_to_observation_group
         obs_arr = np.vectorize(obs_map.__getitem__)(arr)
         n_bins = maze.num_observations
@@ -497,7 +497,7 @@ def _draw_modal_residency(
             modal = int(np.argmax(counts))
             modal_vals.append(modal)
             frequencies.append(counts[modal] / len(trajectories))
-        y_labels = maze.maze_spec.observation_labels
+        y_labels = maze.current_maze_spec.observation_labels
     else:
         n_bins = maze.num_states
         modal_vals = []
@@ -544,7 +544,7 @@ def plot_mean_cumulative_reward(
 
 def plot_modal_residency(
     trajectories: "list[Trajectory]",
-    maze: MazeMDP,
+    maze: Maze,
     save: bool = False,
     show: bool = True,
 ):
@@ -570,7 +570,7 @@ def plot_modal_residency(
 
 def plot_mean_trajectory_stats(
     trajectories: list[Trajectory],
-    maze: MazeMDP,
+    maze: Maze,
     source: Agent,
     save: bool = False,
     show: bool = True,
@@ -602,10 +602,10 @@ def plot_mean_trajectory_stats(
 
     if save:
         ensure_directories()
-        obs_tag = "PO" if isinstance(maze, MazePOMDP) else "FO"
+        obs_tag = "PO" if maze.observable else "FO"
         filepath = (
             FIGURES_DIR
-            / f"mean_trajectory_stats_{source}_{maze.maze_spec.maze.name}_{obs_tag}.png"
+            / f"mean_trajectory_stats_{source}_{maze.current_maze_spec.maze.name}_{obs_tag}.png"
         )
         plt.savefig(filepath, dpi=150)
         print(f"Saved to {filepath}")

@@ -4,7 +4,7 @@ import numpy as np
 
 from forage_rl.agents import MBRL, QLearningTime
 from forage_rl.agents.registry import Agent
-from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
+from forage_rl.environments import Maze, load_builtin_maze_spec
 from forage_rl.utils import load_trajectories, get_run_count
 from forage_rl.config import DefaultParams
 
@@ -32,7 +32,6 @@ def run_simple_inference(
         return
 
     maze_spec = load_builtin_maze_spec(maze_name)
-    maze_cls = Maze if observable else MazePOMDP
 
     # Test on MBRL-generated trajectory
     print("=" * 60)
@@ -41,7 +40,7 @@ def run_simple_inference(
 
     transitions = load_trajectories(Agent.MBRL, mbrl_file_id, maze_name, observable)
 
-    maze = maze_cls(maze_spec)
+    maze = Maze(maze_spec, observable=observable)
     mbrl = MBRL(
         maze, num_episodes=DefaultParams.NUM_EPISODES, gamma=DefaultParams.GAMMA
     )

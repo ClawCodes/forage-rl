@@ -59,42 +59,69 @@ class Maze(gym.Env):
         seed: Optional[int] = None,
         rng: Optional[np.random.Generator] = None,
         horizon: Optional[int] = None,
+        observable: Optional[bool] = None
     ) -> None:
         """Initialize maze dynamics from a validated spec or TOML file."""
         super().__init__()
 
-        self.maze_spec = maze_spec
-        self.horizon = self.maze_spec.maze.horizon if horizon is None else horizon
+        self._original_maze_spec = maze_spec
+        self.rng = rng or np.random.default_rng(seed)
+        
+        self._update_from_maze_spec(maze_spec)
+
+        self.horizon = maze_spec.maze.horizon if horizon is None else horizon
         if self.horizon <= 0:
             raise ValueError(f"horizon must be > 0, got {self.horizon}")
-
-        self.rng = rng or np.random.default_rng(seed)
-        self.num_states = self.maze_spec.num_states
-        self.num_actions = self.maze_spec.num_actions
-        self.decays = self.maze_spec.decays
-        self.state_labels = self.maze_spec.state_labels
-        self.action_labels = list(self.maze_spec.maze.action_labels)
-        self.initial_state = self.maze_spec.maze.initial_state
-
-        # Gymnasium spaces
-        self.observation_space = Discrete(self.num_states)
-        self.action_space = Discrete(self.num_actions)
+        self.observable = maze_spec.maze.observable if observable is None else observable
 
         # Internal state
         self.state = self.initial_state
         self.time = 0
 
+    def _update_from_maze_spec(self, maze_spec: MazeSpec):
+        self.current_maze_spec = maze_spec
+        self.horizon = maze_spec.maze.horizon
+        if self.horizon <= 0:
+            raise ValueError(f"horizon must be > 0, got {self.horizon}")
+        self.observable = maze_spec.maze.observable
+
+        self.num_states = maze_spec.num_states
+        self.num_actions = maze_spec.num_actions
+        self.decays = maze_spec.decays
+        self.state_labels = maze_spec.state_labels
+        self.action_labels = list(maze_spec.maze.action_labels)
+        self.initial_state = maze_spec.maze.initial_state
+
+        # Gymnasium spaces
+        self.observation_space = Discrete(self.num_states)
+        self.action_space = Discrete(self.num_actions)
+
         # Precomputed transition tables
-        self._transitions_by_state_action = self.maze_spec.transition_map()
+        self._transitions_by_state_action = maze_spec.transition_map()
         self._transition_duration_by_edge: dict[tuple[int, int, int], int] = {}
-        if self.maze_spec.uses_transition_durations:
+        if maze_spec.uses_transition_durations:
             self._transition_duration_by_edge = {
                 (row.state, row.action, row.next_state): row.duration
-                for row in self.maze_spec.transitions
+                for row in maze_spec.transitions
                 if isinstance(row, TransitionDurationSpec)
             }
 
         self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
+
+        # observability-related
+        self._state_to_observation_group = self._build_state_observation_map()
+        self.num_observations = len(set(self._state_to_observation_group.values()))
+        self.observation_space = Discrete(self.num_observations)
+
+    def _build_state_observation_map(self) -> dict[int, int]:
+        """Build mapping from concrete states to observation groups."""
+        return {state.id: state.observation_group for state in self.current_maze_spec.states}
+
+    def _observe(self, state: Optional[int] = None) -> int:
+        """Return observation group id for a state (or current state by default)."""
+        state_idx = self.state if state is None else state
+        self._validate_state(state_idx)
+        return self._state_to_observation_group[state_idx]
 
     @classmethod
     def from_file(
@@ -165,7 +192,7 @@ class Maze(gym.Env):
         self, state_idx: int, action_idx: int, next_state_idx: int
     ) -> int:
         """Return time cost for a concrete ``(state, action, next_state)`` edge."""
-        if not self.maze_spec.uses_transition_durations:
+        if not self.current_maze_spec.uses_transition_durations:
             return 1
 
         transition_key = (state_idx, action_idx, next_state_idx)
@@ -195,13 +222,21 @@ class Maze(gym.Env):
     ) -> tuple[int, dict[str, Any]]:
         """Reset to initial state and clear per-patch depletion counters."""
         super().reset(seed=seed, options=options)
+
+        # TODO: need to consider if this is what we want,
+        # but for now we are planning to do only one episode, this will only be called once per trajectory anyway.
+        self._update_from_maze_spec(self._original_maze_spec)
+
         self.state = self.initial_state
         self.time = 0
         if seed is not None:
             self.rng = np.random.default_rng(seed)
         for reward_model in self.reward_models:
             reward_model.reset(rng=self.rng)
-        return self.state, {}
+
+        observation = self.state if self.observable else self._observe()
+        info = {"true_state": self.state}
+        return observation, info
 
     def step(self, action: int) -> tuple[int, float, bool, bool, dict[str, Any]]:
         """Execute action and return standard Gymnasium 5-tuple.
@@ -221,8 +256,10 @@ class Maze(gym.Env):
         self.time += duration
         truncated = self.time >= self.horizon
 
-        info = {"prev_state": prev_state, "action": action}
-        return self.state, reward, False, truncated, info
+        info = {"prev_state": prev_state, "action": action, "true_state": self.state}
+
+        observation = self.state if self.observable else self._observe()
+        return observation, reward, False, truncated, info
 
     # Backward compatible interface
     def step_transition(self, action: int) -> tuple[Transition, bool]:
@@ -238,71 +275,13 @@ class Maze(gym.Env):
             reward=reward,
             next_state=obs,
         )
+        if not self.observable:
+            transition.state = self._observe(info["prev_state"])
+
         done = terminated or truncated
         return transition, done
 
-
-class MazePOMDP(Maze):
-    """Partially observable wrapper with explicit observation groups from spec."""
-
-    def __init__(
-        self,
-        maze_spec: MazeSpec,
-        seed: Optional[int] = None,
-        rng: Optional[np.random.Generator] = None,
-        horizon: Optional[int] = None,
-    ):
-        """Initialize POMDP wrapper with explicit observation-group mapping."""
-        super().__init__(
-            maze_spec=maze_spec,
-            seed=seed,
-            rng=rng,
-            horizon=horizon,
-        )
-        self._state_to_observation_group = self._build_state_observation_map()
-        self.num_observations = len(set(self._state_to_observation_group.values()))
-        self.observation_space = Discrete(self.num_observations)
-
-    def _build_state_observation_map(self) -> dict[int, int]:
-        """Build mapping from concrete states to observation groups."""
-
-        return {state.id: state.observation_group for state in self.maze_spec.states}
-
-    def observe(self, state: Optional[int] = None) -> int:
-        """Return observation group id for a state (or current state by default)."""
-        state_idx = self.state if state is None else state
-        self._validate_state(state_idx)
-        return self._state_to_observation_group[state_idx]
-
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict[str, Any]] = None,
-    ) -> tuple[int, dict[str, Any]]:
-        """Reset and return observation group instead of true state."""
-        _, info = super().reset(seed=seed, options=options)
-        info["true_state"] = self.state
-        return self.observe(), info
-
-    def step(self, action: int) -> tuple[int, float, bool, bool, dict[str, Any]]:
-        """Step and return observation group instead of true state."""
-        _, reward, terminated, truncated, info = super().step(action)
-        info["true_state"] = self.state
-        return self.observe(), reward, terminated, truncated, info
-
-    def step_transition(self, action: int) -> tuple[Transition, bool]:
-        """Execute action and return (Transition, done) using observation groups."""
-        obs, reward, terminated, truncated, info = self.step(action)
-        transition = Transition(
-            state=self.observe(info["prev_state"]),
-            action=info["action"],
-            reward=reward,
-            next_state=obs,
-        )
-        done = terminated or truncated
-        return transition, done
-
+    # TODO: Pulled straight from MazePOMDP without any modifications, so may need some changes
     def obs_transition_distribution(
         self, obs_group: int, action_idx: int
     ) -> list[tuple[int, float]]:
@@ -387,11 +366,7 @@ class SimpleMaze(Maze):
         )
 
 
-MazeMDP = Maze | MazePOMDP
-
-
 def maze_from_builtin_maze_spec(
     name: str = "simple", observable: bool = True
-) -> MazeMDP:
-    maze_cls = Maze if observable else MazePOMDP
-    return maze_cls(load_builtin_maze_spec(name))
+) -> Maze:
+    return Maze(load_builtin_maze_spec(name), observable=observable)

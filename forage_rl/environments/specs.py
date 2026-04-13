@@ -17,6 +17,7 @@ class MazeMeta(BaseModel):
     initial_state: int = 0
     action_labels: List[str] = Field(default_factory=lambda: ["stay", "leave"])
     observation_labels: List[str]
+    observable: bool = Field(default=True)
 
 
 class StateSpec(BaseModel):
@@ -56,6 +57,8 @@ TransitionSpec = Union[TransitionStepSpec, TransitionDurationSpec]
 
 class PerturbationSpec(BaseModel):
     perturbation_time: int
+    observable: Optional[bool] = None
+    # TODO: currently can't add/remove observation groups
 
     states: List[StateSpec]
     transitions: List[TransitionSpec]
@@ -229,6 +232,10 @@ class MazeSpec(BaseModel):
             return self
 
         perturbed_model = self.model_dump()
+
+        if self.perturbation.observable is not None:
+            perturbed_model["maze"]["observable"] = self.perturbation.observable
+
         for state in self.perturbation.states:
             id = state.id
             if id < len(perturbed_model["states"]):
@@ -250,11 +257,13 @@ class MazeSpec(BaseModel):
         # If current_state does exist, but current_action doesn't, then we want to delete the current transition
         # (effectively removing the option of current_action).
         # Else, current_state and current_action exist in perturbed_transitions, so update the current transition.
+
+        # TODO: does not allow adding *new* transitions (i.e., a state/action pair that didn't originally exist)
         transitions_copy = perturbed_model["transitions"].copy()
         for i in range(len(transitions_copy)):
             transition = transitions_copy[i]
             if transition["state"] in perturbed_transitions:
-                perturbed_transition = perturbed_transitions[transition.state][transition.action]
+                perturbed_transition = perturbed_transitions[transition["state"]][transition["action"]]
                 transitions_copy[i] = perturbed_transition  # None if action does not exist
 
         perturbed_model["transitions"] = [t for t in transitions_copy if t is not None]

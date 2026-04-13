@@ -23,7 +23,7 @@ class TestMazeInitialization:
         maze = Maze.from_spec("simple", rng=expected_rng)
 
         # Assert
-        assert maze.maze_spec == expected_spec
+        assert maze.current_maze_spec == expected_spec
         assert maze.horizon == 100
         assert maze.rng == expected_rng
         assert maze.num_actions == 2

@@ -7,7 +7,7 @@ import numpy as np
 
 from forage_rl import Trajectory
 from forage_rl.agents.registry import Agent
-from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
+from forage_rl.environments import Maze, load_builtin_maze_spec
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.utils import load_trajectories, save_logprobs, get_run_count
 from forage_rl.config import ensure_directories
@@ -34,10 +34,9 @@ def evaluate_trajectory(
         agents = registered_agents()
 
     maze_spec = load_builtin_maze_spec(maze_name)
-    maze_cls = Maze if observable else MazePOMDP
     results = {}
     for agent_name in agents:
-        agent = get_agent(agent_name, maze_cls(maze_spec))
+        agent = get_agent(agent_name, Maze(maze_spec, observable=observable))
         results[agent_name] = np.array(agent.simulate(trajectory))
     return results
 
