@@ -9,6 +9,16 @@ import numpy as np
 
 from forage_rl import RunDataset, Trajectory
 from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec
+from forage_rl.analysis.patch_timing import (
+    aggregate_curves,
+    extract_decision_rows,
+    infer_hidden_states_for_trajectory,
+    leave_probability_curve,
+    mvt_optimal_dwell_by_state,
+    mvt_residency_deviation_by_patch,
+    normalized_curve_auc,
+    observation_group_patch_labels,
+)
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments import resolve_effective_horizon
 from forage_rl.environments.maze import Maze, MazeMDP, MazePOMDP, maze_from_builtin_maze_spec
@@ -528,6 +538,206 @@ def plot_episode_return_comparison(
         ax.legend(fontsize=10)
 
     filename = f"episode_return_comparison_{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def _extract_run_decision_rows(
+    run_dataset: RunDataset,
+    *,
+    maze_name: str,
+    maze: Maze,
+    observable: bool,
+) -> list:
+    if observable:
+        patch_labels = {
+            int(state_spec.id): state_spec.label for state_spec in maze.maze_spec.states
+        }
+    else:
+        patch_labels = observation_group_patch_labels(maze_name)
+
+    rows = []
+    for trajectory in run_dataset:
+        resolved_states = (
+            None
+            if observable
+            else infer_hidden_states_for_trajectory(trajectory, maze=maze)
+        )
+        rows.extend(
+            extract_decision_rows(
+                trajectory,
+                patch_labels=patch_labels,
+                resolved_states=resolved_states,
+            )
+        )
+    return rows
+
+
+def plot_patch_timing_summary(
+    source: PolicyInput,
+    maze_name: str = "simple",
+    observable: bool = True,
+    run_ids: list[int] | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+    horizon: int | None = None,
+):
+    source_spec = _normalize_policy(source)
+    selected_run_ids = (
+        run_ids
+        if run_ids is not None
+        else _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+    )
+    if not selected_run_ids:
+        return None
+
+    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
+    maze = maze_from_builtin_maze_spec(
+        maze_name,
+        observable,
+        horizon=resolved_horizon,
+    )
+    leave_action = maze.action_labels.index("leave")
+    optimal_dwell_by_state = mvt_optimal_dwell_by_state(
+        maze_name=maze_name,
+        horizon=resolved_horizon,
+    )
+    patch_order = list(maze.maze_spec.observation_labels or ["Upper Patch", "Lower Patch"])
+    deviation_offset = resolved_horizon
+    curve_width = resolved_horizon * 2 + 1
+
+    deviations_by_patch = {patch_label: [] for patch_label in patch_order}
+    curves_by_patch = {patch_label: [] for patch_label in patch_order}
+
+    for run_id in selected_run_ids:
+        run_dataset = _load_policy_run_dataset(
+            source_spec,
+            run_id,
+            maze_name,
+            observable,
+            horizon=horizon,
+        )
+        rows = _extract_run_decision_rows(
+            run_dataset,
+            maze_name=maze_name,
+            maze=maze,
+            observable=observable,
+        )
+        run_deviations = mvt_residency_deviation_by_patch(
+            rows,
+            leave_action=leave_action,
+            optimal_dwell_by_state=optimal_dwell_by_state,
+        )
+        for patch_label, deviations in run_deviations.items():
+            deviations_by_patch.setdefault(patch_label, []).extend(deviations)
+            curve = leave_probability_curve(
+                rows,
+                value_getter=lambda row, optimal=optimal_dwell_by_state, offset=deviation_offset: (
+                    row.time_spent + 1 - optimal[row.state] + offset
+                ),
+                leave_action=leave_action,
+                max_value=curve_width,
+                patch_label=patch_label,
+            )
+            if np.any(np.isfinite(curve)):
+                curves_by_patch.setdefault(patch_label, []).append(curve)
+
+    fig, (ax_deviation, ax_curve) = plt.subplots(
+        1,
+        2,
+        figsize=(15, 5),
+        constrained_layout=True,
+    )
+
+    plotted_deviations = [
+        deviations_by_patch.get(patch_label, []) for patch_label in patch_order
+    ]
+    if any(plotted_deviations):
+        boxplot = ax_deviation.boxplot(
+            plotted_deviations,
+            tick_labels=patch_order,
+            patch_artist=True,
+        )
+        for patch, patch_artist in zip(boxplot["boxes"], ["#3498db", "#e67e22"], strict=False):
+            patch.set_facecolor(patch_artist)
+            patch.set_alpha(0.45)
+        ax_deviation.axhline(0.0, color="gray", linestyle="--", alpha=0.8)
+    else:
+        ax_deviation.text(
+            0.5,
+            0.5,
+            "No leave decisions available",
+            ha="center",
+            va="center",
+            transform=ax_deviation.transAxes,
+        )
+    ax_deviation.set_ylabel("Actual Dwell - MVT-Optimal Dwell", fontsize=12)
+    ax_deviation.set_title("Patch Residency Deviation", fontsize=14)
+
+    color_by_patch = {
+        "Upper Patch": "#3498db",
+        "Lower Patch": "#e67e22",
+    }
+    plotted_curves = False
+    for patch_label in patch_order:
+        patch_curves = curves_by_patch.get(patch_label, [])
+        if not patch_curves:
+            continue
+        summary = aggregate_curves(patch_curves)
+        x = summary.x - deviation_offset
+        auc = normalized_curve_auc(summary.mean)
+        color = color_by_patch.get(patch_label, "#34495e")
+        ax_curve.plot(
+            x,
+            summary.mean,
+            linewidth=2,
+            color=color,
+            label=f"{patch_label} (AUC={auc:.2f})",
+        )
+        ax_curve.fill_between(
+            x,
+            summary.mean - summary.std,
+            summary.mean + summary.std,
+            alpha=0.2,
+            color=color,
+        )
+        plotted_curves = True
+
+    if not plotted_curves:
+        ax_curve.text(
+            0.5,
+            0.5,
+            "No leave-probability curves available",
+            ha="center",
+            va="center",
+            transform=ax_curve.transAxes,
+        )
+    else:
+        ax_curve.legend(fontsize=10)
+    ax_curve.axvline(0.0, color="gray", linestyle="--", alpha=0.8)
+    ax_curve.set_ylim(0.0, 1.0)
+    ax_curve.set_xlabel("Dwell Deviation From MVT-Optimal", fontsize=12)
+    ax_curve.set_ylabel("Leave Probability", fontsize=12)
+    ax_curve.set_title("Leave Probability vs MVT Deviation", fontsize=14)
+
+    fig.suptitle(
+        _figure_title(
+            f"Patch Timing Summary: '{_policy_label(source_spec)}' ({maze_name}, {_obs_tag(observable)})",
+            benchmark_label,
+        ),
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    filename = (
+        f"patch_timing_{_policy_artifact_label(source_spec)}_"
+        f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+    )
     if filename_suffix is not None:
         filename = f"{filename}_{filename_suffix}"
     filepath = FIGURES_DIR / f"{filename}.png"

@@ -13,6 +13,7 @@ from forage_rl.visualization.plots import (
     plot_aggregate_comparison,
     plot_aggregate_trajectory_stats,
     plot_episode_return_comparison,
+    plot_patch_timing_summary,
 )
 
 EvaluatorMode = str
@@ -168,6 +169,14 @@ def regenerate_artifacts(
                     maze_name=maze_name,
                     observable=observable,
                     cohort_policies=source_agents,
+                    save=True,
+                    show=False,
+                    horizon=horizon,
+                )
+                plot_patch_timing_summary(
+                    source,
+                    maze_name=maze_name,
+                    observable=observable,
                     save=True,
                     show=False,
                     horizon=horizon,
