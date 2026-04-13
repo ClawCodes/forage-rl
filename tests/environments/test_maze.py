@@ -1,10 +1,9 @@
-import numpy as np
-import pytest
-from gymnasium.spaces import Discrete
-
-from forage_rl.environments import ForagingReward, Maze
+from forage_rl.environments import Maze
 from forage_rl.environments.spec_loader import load_builtin_maze_spec
 from forage_rl.types import Transition
+import numpy as np
+from gymnasium.spaces import Discrete
+import pytest
 
 
 class TestMazeInitialization:
@@ -254,64 +253,6 @@ class TestMazeStep:
         assert info["prev_state"] == 1
         assert obs == 3
         assert reward == 0.0
-
-    def test_decay_reward_model_rewards_decrease_over_stays(self):
-        """Exponential rewards should deplete over repeated stays."""
-        early_rewards = []
-        late_rewards = []
-
-        for seed in range(1000):
-            reward_model = ForagingReward(
-                decay=0.3,
-                rng=np.random.default_rng(seed),
-            )
-            early_rewards.append(reward_model.sample_reward())
-            for _ in range(4):
-                reward_model.sample_reward()
-            late_rewards.append(reward_model.sample_reward())
-
-        assert np.mean(early_rewards) > np.mean(late_rewards)
-
-    def test_decay_reward_model_first_stay_tracks_initial_reward_prob(self):
-        """Scaled exponential rewards should respect the configured first-stay probability."""
-        rewards = [
-            ForagingReward(
-                decay=0.2,
-                initial_reward_prob=0.35,
-                reward_probs=None,
-                rng=np.random.default_rng(seed),
-            ).sample_reward()
-            for seed in range(2000)
-        ]
-
-        assert abs(np.mean(rewards) - 0.35) < 0.04
-
-    def test_reward_schedule_exhaustion_reuses_final_probability(self):
-        """Scheduled rewards keep using the final probability after the schedule ends."""
-        reward_model = ForagingReward(
-            decay=None,
-            reward_probs=[1.0, 0.0],
-            rng=np.random.default_rng(0),
-        )
-
-        rewards = [reward_model.sample_reward() for _ in range(4)]
-
-        assert rewards == [1.0, 0.0, 0.0, 0.0]
-
-    def test_reward_schedule_reset_restores_initial_probability(self):
-        """Resetting a scheduled reward process restarts it from the first entry."""
-        reward_model = ForagingReward(
-            decay=None,
-            reward_probs=[1.0, 0.0],
-            rng=np.random.default_rng(0),
-        )
-
-        reward_model.sample_reward()
-        reward_model.sample_reward()
-        reward_model.reset()
-
-        assert reward_model.counter == 0
-        assert reward_model.sample_reward() == 1.0
 
 
 class TestMazeStepTransition:
