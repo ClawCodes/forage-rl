@@ -35,7 +35,7 @@ class QTable:
         self.num_actions = maze.num_actions
 
         # {<state>: [<state action_1>,...,<state action_N>]}
-        if maze.observable:
+        if not maze.observable:
             obs_to_rep: dict[int, int] = {}
             for concrete_state, obs_group in maze._state_to_observation_group.items():
                 if obs_group not in obs_to_rep:

@@ -486,7 +486,7 @@ def _draw_modal_residency(
     min_len = min(len(s) for s in state_seqs)
     arr = np.array([s[:min_len] for s in state_seqs])  # (n_trajs, min_len)
 
-    if maze.observable:
+    if not maze.observable:
         obs_map = maze._state_to_observation_group
         obs_arr = np.vectorize(obs_map.__getitem__)(arr)
         n_bins = maze.num_observations
@@ -602,7 +602,7 @@ def plot_mean_trajectory_stats(
 
     if save:
         ensure_directories()
-        obs_tag = "PO" if maze.observable else "FO"
+        obs_tag = "PO" if not maze.observable else "FO"
         filepath = (
             FIGURES_DIR
             / f"mean_trajectory_stats_{source}_{maze.current_maze_spec.maze.name}_{obs_tag}.png"

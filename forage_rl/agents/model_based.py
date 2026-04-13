@@ -38,7 +38,7 @@ class MBRL(BaseAgent):
         """Perform Q-value iteration using learned rewards and known transitions."""
         get_transitions = (
             self.maze.obs_transition_distribution
-            if self.maze.observable
+            if not self.maze.observable
             else self.maze.transition_distribution
         )
         for _ in range(self.num_planning_steps):
