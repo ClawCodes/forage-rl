@@ -12,9 +12,14 @@ Base install:
 uv sync
 ```
 
-PyTorch is a required dependency. For CUDA or Apple Silicon builds, use the
-appropriate PyTorch distribution for your machine if you need hardware
-acceleration.
+Neural agents use the optional `neural` extra:
+
+```bash
+uv sync --extra neural
+```
+
+For CUDA or Apple Silicon acceleration, install a PyTorch build appropriate for
+your machine.
 
 ## Agents
 

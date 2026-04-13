@@ -1,6 +1,9 @@
+import tomllib
+
 import pytest
 from pydantic import ValidationError
 
+from forage_rl.config import MAZE_SPECS_DIR
 from forage_rl.environments.spec_loader import load_builtin_maze_spec
 from forage_rl.environments.specs import MazeSpec
 
@@ -11,14 +14,12 @@ class TestSpecLoader:
         maze = load_builtin_maze_spec(name="simple")
 
         # Assert
-        # Meta info
         assert maze.maze.name == "simple"
         assert maze.maze.horizon == 100
         assert maze.maze.initial_state == 0
         assert maze.maze.action_labels == ["stay", "leave"]
         assert maze.maze.observation_labels == ["Upper Patch", "Lower Patch"]
 
-        # States
         assert len(maze.states) == 2
         assert maze.states[0].id == 0
         assert maze.states[0].label == "Upper Patch"
@@ -30,24 +31,19 @@ class TestSpecLoader:
         assert maze.states[1].decay == 3.0
         assert maze.states[1].observation_group == 1
 
-        # Transitions
         assert len(maze.transitions) == 4
-        # State 0 stay
         assert maze.transitions[0].state == 0
         assert maze.transitions[0].action == 0
         assert maze.transitions[0].next_state == 0
         assert maze.transitions[0].prob == 1.0
-        # State 0 leave
         assert maze.transitions[1].state == 0
         assert maze.transitions[1].action == 1
         assert maze.transitions[1].next_state == 1
         assert maze.transitions[1].prob == 1.0
-        # State 1 stay
         assert maze.transitions[2].state == 1
         assert maze.transitions[2].action == 0
         assert maze.transitions[2].next_state == 1
         assert maze.transitions[2].prob == 1.0
-        # State 1 leave
         assert maze.transitions[3].state == 1
         assert maze.transitions[3].action == 1
         assert maze.transitions[3].next_state == 0
@@ -58,14 +54,12 @@ class TestSpecLoader:
         maze = load_builtin_maze_spec(name="full")
 
         # Assert
-        # Meta info
         assert maze.maze.name == "full"
         assert maze.maze.horizon == 100
         assert maze.maze.initial_state == 0
         assert maze.maze.action_labels == ["stay", "leave"]
         assert maze.maze.observation_labels == ["Upper Patch", "Lower Patch"]
 
-        # States
         assert len(maze.states) == 6
         assert maze.states[0].id == 0
         assert maze.states[0].label == "Upper Patch"
@@ -97,44 +91,35 @@ class TestSpecLoader:
         assert maze.states[5].decay == 3.0
         assert maze.states[5].observation_group == 1
 
-        # Transitions
         assert len(maze.transitions) == 24
-        # State 0 stay
         assert maze.transitions[0].state == 0
         assert maze.transitions[0].action == 0
         assert maze.transitions[0].next_state == 0
         assert maze.transitions[0].prob == 1.0
-        # State 0 leave
         assert maze.transitions[1].state == 0
         assert maze.transitions[1].action == 1
         assert maze.transitions[1].next_state == 3
         assert maze.transitions[1].prob == 0.15
-
         assert maze.transitions[2].state == 0
         assert maze.transitions[2].action == 1
         assert maze.transitions[2].next_state == 4
         assert maze.transitions[2].prob == 0.35
-
         assert maze.transitions[3].state == 0
         assert maze.transitions[3].action == 1
         assert maze.transitions[3].next_state == 5
         assert maze.transitions[3].prob == 0.50
-        # State 3 stay
         assert maze.transitions[12].state == 3
         assert maze.transitions[12].action == 0
         assert maze.transitions[12].next_state == 3
         assert maze.transitions[12].prob == 1.0
-        # State 3 leave
         assert maze.transitions[13].state == 3
         assert maze.transitions[13].action == 1
         assert maze.transitions[13].next_state == 0
         assert maze.transitions[13].prob == 0.15
-
         assert maze.transitions[14].state == 3
         assert maze.transitions[14].action == 1
         assert maze.transitions[14].next_state == 1
         assert maze.transitions[14].prob == 0.35
-
         assert maze.transitions[15].state == 3
         assert maze.transitions[15].action == 1
         assert maze.transitions[15].next_state == 2
@@ -177,9 +162,6 @@ class TestSpecLoader:
         assert spec.observation_labels == spec.maze.observation_labels
 
     def test_observation_labels_length_mismatch_raises(self):
-        import tomllib
-        from forage_rl.config import MAZE_SPECS_DIR
-
         with open(MAZE_SPECS_DIR / "simple.toml", "rb") as f:
             raw = tomllib.load(f)
 

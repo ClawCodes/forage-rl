@@ -9,8 +9,15 @@ dependencies = [
     "matplotlib>=3.10.8",
     "numpy>=2.4.1",
     "pydantic>=2.12.5",
+]
+
+[project.optional-dependencies]
+neural = [
     "torch>=2.0",
 ]
+
+[project.scripts]
+forage = "forage_rl.cli:main"
 
 [build-system]
 requires = ["hatchling"]

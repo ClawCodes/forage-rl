@@ -16,7 +16,7 @@ class MazeMeta(BaseModel):
     horizon: int = Field(default=DefaultParams.HORIZON, gt=0)
     initial_state: int = 0
     action_labels: List[str] = Field(default_factory=lambda: ["stay", "leave"])
-    observation_labels: List[str]
+    observation_labels: List[str] = Field(default_factory=list)
 
 
 class StateSpec(BaseModel):
@@ -264,6 +264,11 @@ class MazeSpec(BaseModel):
             )
 
         num_obs_groups = len(observation_groups)
+        if not self.maze.observation_labels:
+            self.maze.observation_labels = [
+                f"Observation {observation_group}"
+                for observation_group in observation_groups
+            ]
         if len(self.maze.observation_labels) != num_obs_groups:
             raise ValueError(
                 f"observation_labels length ({len(self.maze.observation_labels)}) "
