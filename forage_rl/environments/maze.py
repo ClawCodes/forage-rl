@@ -94,6 +94,7 @@ class Maze(gym.Env):
         self._state_specs_by_id = {
             state_spec.id: state_spec for state_spec in self.maze_spec.states
         }
+        self._stay_action_idx = self.action_labels.index("stay")
 
         # Gymnasium spaces
         self.observation_space = Discrete(self.num_states)
@@ -221,13 +222,16 @@ class Maze(gym.Env):
                 f"state={state_idx}, action={action_idx}, next_state={next_state_idx}"
             ) from exc
 
-    def _get_reward(self, next_state_idx: int) -> float:
-        """Return reward for a transition and reset depletion after patch switches."""
-        if self.state == next_state_idx:
-            return self.reward_models[self.state].sample_reward()
+    def _get_reward(self, prev_state_idx: int, action_idx: int, next_state_idx: int) -> float:
+        """Return reward for a transition with explicit blocked-leave semantics."""
+        if prev_state_idx != next_state_idx:
+            for reward_model in self.reward_models:
+                reward_model.reset()
+            return 0.0
 
-        for reward_model in self.reward_models:
-            reward_model.reset()
+        if action_idx == self._stay_action_idx:
+            return self.reward_models[prev_state_idx].sample_reward()
+
         return 0.0
 
     def expected_stay_reward(self, state_idx: int, time_spent: int) -> float:
@@ -275,13 +279,18 @@ class Maze(gym.Env):
         prev_state = self.state
         next_state = self._sample_next_state(prev_state, action)
         duration = self.transition_duration(prev_state, action, next_state)
-        reward = self._get_reward(next_state)
+        reward = self._get_reward(prev_state, action, next_state)
+        blocked_transition = prev_state == next_state and action != self._stay_action_idx
 
         self.state = next_state
         self.time += duration
         truncated = self.time >= self.horizon
 
-        info = {"prev_state": prev_state, "action": action}
+        info = {
+            "prev_state": prev_state,
+            "action": action,
+            "blocked_transition": blocked_transition,
+        }
         return self.state, reward, False, truncated, info
 
     # Backward compatible interface
