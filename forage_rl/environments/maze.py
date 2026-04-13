@@ -93,7 +93,7 @@ class Maze(gym.Env):
         self.time = 0
 
     def _update_from_maze_spec(self, maze_spec: MazeSpec):
-        self.current_maze_spec = maze_spec
+        self.maze_spec = maze_spec
         self.horizon = maze_spec.maze.horizon
         if self.horizon <= 0:
             raise ValueError(f"horizon must be > 0, got {self.horizon}")
@@ -143,7 +143,7 @@ class Maze(gym.Env):
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
-        return {state.id: state.observation_group for state in self.current_maze_spec.states}
+        return {state.id: state.observation_group for state in self.maze_spec.states}
 
     def _observe(self, state: Optional[int] = None) -> int:
         """Return observation group id for a state (or current state by default)."""
@@ -160,7 +160,7 @@ class Maze(gym.Env):
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
-        return {state.id: state.observation_group for state in self.current_maze_spec.states}
+        return {state.id: state.observation_group for state in self.maze_spec.states}
 
     def _build_observation_group_state_map(self) -> dict[int, tuple[int, ...]]:
         grouped_states: dict[int, list[int]] = defaultdict(list)
@@ -310,7 +310,7 @@ class Maze(gym.Env):
         self, state_idx: int, action_idx: int, next_state_idx: int
     ) -> int:
         """Return time cost for a concrete ``(state, action, next_state)`` edge."""
-        if not self.current_maze_spec.uses_transition_durations:
+        if not self.maze_spec.uses_transition_durations:
             return 1
 
         transition_key = (state_idx, action_idx, next_state_idx)

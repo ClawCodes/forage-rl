@@ -6,7 +6,6 @@ from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.q_table import QTable
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
-from forage_rl.environments.maze import MazePOMDP
 
 
 class BaseSRAgent(BaseAgent):
@@ -51,7 +50,7 @@ class BaseSRAgent(BaseAgent):
 
     def _get_transitions(self, state: int, action: int) -> list[tuple[int, float]]:
         """Return transition distribution, handling FO and PO mazes."""
-        if isinstance(self.maze, MazePOMDP):
+        if not self.maze.observable:
             return self.maze.obs_transition_distribution(state, action)
         return self.maze.transition_distribution(state, action)
 

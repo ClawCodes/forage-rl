@@ -16,7 +16,6 @@ from forage_rl.agents.registry import (
 from forage_rl.config import DefaultParams, ensure_directories
 from forage_rl.environments import (
     Maze,
-    MazePOMDP,
     load_builtin_maze_spec,
     resolve_effective_horizon,
 )
@@ -46,7 +45,6 @@ def train_pretrained_agents(
     agent_types = neural_agents() if agent_types is None else agent_types
     resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
-    maze_cls = Maze if observable else MazePOMDP
 
     for agent_type in agent_types:
         if not is_neural_agent(agent_type):
@@ -54,7 +52,7 @@ def train_pretrained_agents(
                 f"Pretraining only supports neural agents, got {agent_type.value}."
             )
 
-        maze = maze_cls(maze_spec, seed=seed, horizon=resolved_horizon)
+        maze = Maze(maze_spec, seed=seed, horizon=resolved_horizon, observable=observable)
         agent = get_agent(
             agent_type,
             maze,

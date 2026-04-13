@@ -379,7 +379,7 @@ def _draw_modal_residency(ax: plt.Axes, trajectories: list[Trajectory], maze: Ma
             modal = int(np.argmax(counts))
             modal_values.append(modal)
             frequencies.append(counts[modal] / len(trajectories))
-        y_labels = maze.current_maze_spec.observation_labels
+        y_labels = maze.maze_spec.observation_labels
     else:
         n_bins = maze.num_states
         modal_values = []

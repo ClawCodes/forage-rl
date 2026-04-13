@@ -13,11 +13,8 @@ from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.base import ensure_time_spent_compatible
 from forage_rl.agents.registry import Agent, NeuralContextMode, validate_context_mode
 from forage_rl.config import DefaultParams
-from forage_rl.environments import MazePOMDP
+from forage_rl.environments import Maze
 from forage_rl.utils.torch_support import require_torch, resolve_device
-
-if TYPE_CHECKING:
-    from forage_rl.environments import Maze
 
 
 class NeuralContext(TypedDict):
@@ -174,7 +171,7 @@ class NeuralAgentBase(BaseAgent):
         from forage_rl.utils.io import resolve_checkpoint_load_path
 
         maze_name = self.maze.maze_spec.maze.name
-        observable = not isinstance(self.maze, MazePOMDP)
+        observable = self.maze.observable
         return resolve_checkpoint_load_path(
             self.agent_name,
             maze_name,

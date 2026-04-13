@@ -19,7 +19,6 @@ from forage_rl.config import DefaultParams
 from forage_rl.config import ensure_directories
 from forage_rl.environments import (
     Maze,
-    MazePOMDP,
     load_builtin_maze_spec,
     resolve_effective_horizon,
 )
@@ -106,14 +105,13 @@ def _build_evaluator_agents(
     """Instantiate one evaluator agent per spec for reuse across a run."""
     resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
-    maze_cls = Maze if observable else MazePOMDP
     evaluator_agents: dict[EvaluatorSpec, object] = {}
     for evaluator in (_normalize_evaluator(item) for item in evaluators):
         if is_neural_agent(evaluator.agent):
             configure_torch_worker(device)
         evaluator_agents[evaluator] = get_agent(
             evaluator.agent,
-            maze_cls(maze_spec, horizon=resolved_horizon),
+            Maze(maze_spec, horizon=resolved_horizon, observable=observable),
             device=device,
             init_mode=evaluator.mode,
             checkpoint_path=evaluator.checkpoint_path,
