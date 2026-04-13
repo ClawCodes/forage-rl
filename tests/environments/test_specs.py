@@ -13,7 +13,7 @@ class TestSpecs:
         assert isinstance(raw_data["states"], dict)
 
         # Act
-        result = MazeSpec._expand_compact_format(raw_data)  # ty: ignore
+        result = MazeSpec._expand_compact_format(raw_data)  # type: ignore
 
         # Assert
         # States expanded from dict to list of dicts
@@ -66,6 +66,6 @@ class TestSpecs:
         with open(MAZE_SPECS_DIR / "simple.toml", "rb") as f:
             raw_data = tomllib.load(f)
 
-        result = MazeSpec._expand_compact_format(raw_data)  # ty: ignore
+        result = MazeSpec._expand_compact_format(raw_data)  # type: ignore
 
         assert result["maze"]["observation_labels"] == ["Upper Patch", "Lower Patch"]
