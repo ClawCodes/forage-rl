@@ -1,229 +1,198 @@
 # forage-rl
 
-A mouse foraging simulator for studying reinforcement learning agents in patch-foraging environments.
+Foraging reinforcement learning experiments comparing tabular and neural agents
+across trajectory generation, model inference, and artifact-regeneration
+workflows.
 
----
+## Install
 
-## Installation
-
-```bash
-pip install -e .
-```
-
-This installs the `forage` CLI command alongside the package.
-
----
-
-## The `forage` CLI
-
-The `forage` command runs the full pipeline for a given source agent: generate training trajectories, evaluate them under one or more evaluator agents, and save comparison plots.
-
-```
-forage --source <agent> [--compare-to <agent> ...] [options]
-```
-
-### Arguments
-
-| Argument | Default | Description |
-|---|---|---|
-| `--source` | required | Agent whose trajectories are generated and evaluated |
-| `--compare-to` | `all` | One or more evaluator agents, or `all` for every registered agent |
-| `--num-runs` | 100 | Number of independent trajectory files to generate |
-| `--num-episodes` | 6 | Training episodes per run |
-| `--maze` | `simple` | Built-in maze name (see `forage_rl/environments/maze_specs/`) |
-| `--pomdp` | false | Use partially observable maze instead of fully observable |
-| `--quiet` | false | Suppress per-step output |
-
-Valid agent names are `q_learning` and `mbrl`.
-
-### Examples
-
-Run the full pipeline with `q_learning` as the source agent, evaluated against all registered agents:
+Base install:
 
 ```bash
-forage --source q_learning
+uv sync
 ```
 
-Compare `q_learning` against `mbrl` only, on a custom maze with 10 runs:
+Neural agents use the optional `neural` extra:
 
 ```bash
-forage --source q_learning --compare-to mbrl --num-runs 10 --maze simple
+uv sync --extra neural
 ```
 
-Use the partially observable variant:
+For CUDA or Apple Silicon acceleration, install a PyTorch build appropriate for
+your machine.
+
+## Agents
+
+- `mbrl`
+- `q_learning`
+- `dqn`
+- `elman`
+- `gru`
+- `lstm`
+
+`dqn`, `elman`, `gru`, and `lstm` support `cpu`, `cuda`, and Apple Silicon
+`mps` through PyTorch device resolution. Neural workloads clamp to one worker
+on `cuda` and `mps`; CPU neural workloads still use multiprocessing with
+`spawn`.
+
+`drqn` remains accepted as a legacy alias for `lstm`, but canonical saved
+artifacts and benchmark labels now use `lstm`.
+
+## Legacy Artifact Pipeline
+
+Run the older artifact pipeline with:
 
 ```bash
-forage --source mbrl --compare-to q_learning --pomdp
+uv run python -m forage_rl.experiments.regenerate_artifacts --train-pretrained --device auto
 ```
 
-### Pipeline steps
+By default it:
 
-1. **Validate** — checks all agent names; prints valid options and exits on unknown names
-2. **Confirm overwrites** — prompts interactively if trajectory files already exist for an agent
-3. **Generate trajectories** — trains each agent across `--num-runs` independent runs in parallel; results saved to `data/trajectories/`
-4. **Run inference** — evaluates each trajectory under every evaluator agent; log-likelihoods saved to `data/logprobs/`
-5. **Plot trajectory stats** — saves per-agent reward and residency figures to `outputs/figures/`
-6. **Plot comparison** — saves a win-rate comparison figure to `outputs/figures/`
+- refreshes canonical neural checkpoints in `data/checkpoints/`
+- generates run datasets for `mbrl`, `q_learning`, `dqn`, `elman`, `gru`, and
+  `lstm` in `data/trajectories/`
+- runs inference with tabular fresh evaluators plus all neural agents in both
+  fresh and pretrained modes, writing log-likelihood outputs to
+  `data/logprobs/`
+- renders figures to `outputs/figures/`
 
----
+The default settings cover `simple/FO`, `full/FO`, and `full/PO`.
 
-## Defining a maze
+Aggregate trajectory figures are source-policy plots from generated run
+datasets. `fresh` and `pretrained` evaluator modes apply only to the model
+inference comparison outputs.
 
-Mazes are defined as TOML files and validated against a schema on load.
+## Fast Long-Horizon Smoke Graphs
 
-### Adding a built-in maze
+For a quick smoke run that renders `full/FO` and `full/PO` graphs with
+600-step trajectories and no pretrained-checkpoint retraining, run:
 
-Place a `.toml` file in `forage_rl/environments/maze_specs/`. The filename (without extension) becomes the maze name passed to `--maze`.
-
+```bash
+uv run python -m forage_rl.experiments.regenerate_artifacts \
+  --mazes full \
+  --observability all \
+  --num-runs 2 \
+  --num-episodes 1 \
+  --num-datasets 2 \
+  --horizon 600 \
+  --evaluator-mode fresh \
+  --device cpu
 ```
-forage_rl/environments/maze_specs/my_maze.toml  →  --maze my_maze
+
+Interpretation:
+
+- `--num-episodes 1` means one 600-step episode per run dataset
+- aggregate trajectory figures are the main full-trajectory graphs for this
+  smoke test
+- episode-return figures will show one point per agent, which is expected here
+- aggregate trajectory plots remain episode-aligned and should span
+  `Transition Within Episode = 1..600`
+
+Figure x-axis taxonomy:
+
+- episode return plots: `Episode Within Run`
+- aggregate trajectory plots: `Transition Within Episode`
+- likelihood diagnostics: `Observed Transitions`
+
+Aggregate trajectory plots now pool all episodes from one homogeneous matched
+cohort of saved runs. When mixed saved cohorts exist, they automatically select
+the longest homogeneous matched cohort before plotting.
+
+Use `--horizon` on generation, inference, pretrained-checkpoint training, and
+artifact regeneration when you want longer or shorter episodes than the built-in
+maze default. `--num-episodes` changes how many episodes are generated per run;
+`--horizon` changes how many transitions each episode can contain.
+
+## Trajectory Generation
+
+```bash
+python -m forage_rl.experiments.generate_trajectories --agents mbrl q_learning dqn elman gru lstm --maze full --device auto
 ```
 
-### Loading from an arbitrary file path
+`Trajectory` now means exactly one episode. One training run is stored as a
+`RunDataset`, which is the persisted unit under `data/trajectories/`.
 
-To load a maze spec from any path in Python, use `load_maze_spec`:
+The canonical artifact pipeline now generates `100` episodes per run dataset by
+default so learning curves and aggregate trajectory plots reflect later-stage
+behavior instead of the first few episodes only.
+
+Run dataset paths:
+
+- `data/trajectories/{maze}_{FO|PO}_{agent}_run_dataset_{run_id}.npz`
+- `data/trajectories/{maze}_{FO|PO}_{agent}_run_dataset_{run_id}.json`
+
+Custom-horizon run datasets add `_h{horizon}` immediately after `{FO|PO}` so
+they remain distinct from the built-in default-horizon artifacts.
+
+Available neural context modes:
+
+- `observation_only`: `observation_one_hot`
+- `prev_reward`: `observation_one_hot + prev_reward`
+- `prev_reward_time`: `observation_one_hot + normalized_time_spent + prev_reward`
+- `legacy_context`:
+  `observation_one_hot + normalized_time_spent + prev_reward + prev_action_one_hot`
+
+Non-legacy neural artifacts use distinct suffixes so they do not collide:
+
+- `observation_only -> _obs_only`
+- `prev_reward -> _prev_reward`
+- `prev_reward_time -> _prev_reward_time`
+
+## Pretrained Neural Evaluators
+
+Train canonical legacy final checkpoints for all neural agents with:
+
+```bash
+python -m forage_rl.experiments.train_pretrained_agents --agents all --maze simple --device auto
+```
+
+Canonical checkpoint paths:
+
+- `data/checkpoints/{maze}_{FO|PO}_{agent}_final.pt`
+- `data/checkpoints/{maze}_{FO|PO}_{agent}_final.json`
+
+Custom-horizon checkpoints also use an `_h{horizon}` suffix after `{FO|PO}`.
+
+## Inference
+
+Evaluator tokens support fresh and pretrained neural evaluators:
+
+```bash
+python -m forage_rl.experiments.model_inference \
+  --source-agents mbrl q_learning \
+  --compare-to mbrl q_learning dqn:fresh dqn:pretrained elman:fresh elman:pretrained gru:fresh gru:pretrained lstm:fresh lstm:pretrained \
+  --maze simple \
+  --device auto
+```
+
+`all` expands to every registered agent in fresh mode only. Fresh neural
+evaluators are deterministic by default and seeded with `0` unless overridden
+via `--seed`.
+
+Run-level inference preserves evaluator learning state across episodes within a
+single `RunDataset`, while recurrent hidden state resets at each episode
+boundary.
+
+Inference, checkpoint loading, and plotting are horizon-strict: a requested
+custom horizon only uses artifacts generated for that exact horizon, and stale
+artifacts without horizon metadata must be regenerated.
+
+## Maze Specs
+
+Built-in mazes live under `forage_rl/environments/maze_specs/`. The filename
+without extension becomes the maze name accepted by the experiment entrypoints.
+
+To load a custom maze spec in Python:
 
 ```python
-from forage_rl.environments import load_maze_spec, Maze
+from forage_rl.environments import Maze
+from forage_rl.environments.spec_loader import load_maze_spec
 
 spec = load_maze_spec("/path/to/my_maze.toml")
 maze = Maze(spec)
 ```
 
-### TOML format
-
-A maze spec has three sections: `[maze]`, one `[states.<id>]` block per state, and transition probabilities nested under each state.
-
-```toml
-[maze]
-name        = "my_maze"   # string identifier
-horizon     = 100         # max timesteps per episode
-initial_state = 0         # state id the agent starts in
-action_labels = ["stay", "leave"]  # defines action indices (0, 1, ...)
-
-[states.0]
-label             = "Rich Patch"
-decay             = 0.2          # reward depletion rate (must be > 0)
-observation_group = 0            # groups states that look identical in POMDP mode
-
-[states.0.transitions]
-# Each defined action maps to a list of [next_state, probability] outcomes.
-# Probabilities for each defined (state, action) pair must sum to 1.0.
-stay  = [[0, 1.0]]          # staying keeps the agent in state 0
-leave = [[1, 1.0]]          # leaving moves to state 1
-
-[states.1]
-label             = "Poor Patch"
-decay             = 3.0
-observation_group = 1
-[states.1.transitions]
-stay  = [[1, 1.0]]
-leave = [[0, 1.0]]
-```
-
-#### Stochastic transitions
-
-List multiple `[next_state, probability]` outcomes for a single action:
-
-```toml
-[states.0.transitions]
-stay  = [[0, 1.0]]
-leave = [[1, 0.4], [2, 0.6]]   # 40% → state 1, 60% → state 2
-```
-
-#### Timed transitions (optional)
-
-Add a duration field `[next_state, probability, duration]` to encode travel time. All rows must use this format if any row does:
-
-```toml
-[states.0.transitions]
-stay  = [[0, 1.0, 1]]
-leave = [[1, 1.0, 3]]   # takes 3 timesteps to leave
-```
-
-#### Validation rules
-
-- State ids must be contiguous from `0` to `N-1`
-- `initial_state` must be a valid state id
-- `observation_group` values must be contiguous from `0` to `K-1`
-- Every state must define at least one action
-- Every defined `(state, action)` pair must have transitions that sum to exactly `1.0`
-- No duplicate `(state, action, next_state)` rows
-- Transition modes (with/without duration) cannot be mixed within the same file
-
----
-
-## Creating and registering an agent
-
-### 1. Implement the agent
-
-All agents extend `BaseAgent` from `forage_rl/agents/base.py` and must implement two methods:
-
-```python
-from forage_rl.agents.base import BaseAgent
-from forage_rl.environments import Maze
-from forage_rl import Trajectory
-
-
-class MyAgent(BaseAgent):
-    def __init__(self, maze: Maze, num_episodes: int = 200):
-        super().__init__(maze)
-        self.num_episodes = num_episodes
-
-    def train(self, verbose: bool = True) -> Trajectory:
-        """Train on the maze and return the collected trajectory."""
-        transitions = []
-        for episode in range(self.num_episodes):
-            state, _ = self.maze.reset()
-            done = False
-            while not done:
-                action = ...  # your action selection logic
-                transition, done = self.maze.step_transition(action)
-                transitions.append(transition)
-        return Trajectory(transitions=transitions)
-
-    def simulate(self, trajectory: Trajectory) -> list[float]:
-        """Return per-transition log-likelihoods for inference."""
-        log_likelihoods = []
-        for t in trajectory.transitions:
-            log_prob = ...  # log P(action | state) under your model
-            log_likelihoods.append(log_prob)
-            # optionally update internal state here
-        return log_likelihoods
-```
-
-`train` is called during trajectory generation. `simulate` is called during inference — it receives a trajectory and should return one log-likelihood per transition, updating the agent's internal state as it steps through the trajectory.
-
-`BaseAgent` provides Boltzmann action selection helpers if needed:
-
-```python
-probs  = self.boltzmann_action_probs(q_values)   # softmax over Q-values
-action = self.choose_action_boltzmann(q_values)  # sample from softmax
-```
-
-### 2. Register the agent
-
-Open `forage_rl/agents/registry.py` and add your agent to the `Agent` enum and `AGENT_REGISTRY`:
-
-```python
-from forage_rl.agents.my_agent import MyAgent
-
-class Agent(StrEnum):
-    MBRL      = "mbrl"
-    QLearning = "q_learning"
-    MyAgent   = "my_agent"   # add your entry here
-
-AGENT_REGISTRY: dict[Agent, AgentFactory] = {
-    Agent.MBRL:      lambda maze, num_episodes=DefaultParams.NUM_EPISODES: MBRL(...),
-    Agent.QLearning: lambda maze, num_episodes=DefaultParams.NUM_EPISODES: QLearningTime(...),
-    Agent.MyAgent:   lambda maze, num_episodes=DefaultParams.NUM_EPISODES: MyAgent(
-        maze, num_episodes=num_episodes
-    ),
-}
-```
-
-Once registered, `my_agent` is immediately available as a `--source` or `--compare-to` argument in the CLI.
-
-```bash
-forage --source my_agent --compare-to q_learning mbrl
-```
+Maze specs are TOML files validated by `MazeSpec`. State ids must be contiguous,
+transition probabilities for each `(state, action)` pair must sum to `1.0`, and
+transition formats with and without duration fields cannot be mixed in the same
+file.

@@ -5,9 +5,10 @@ from .base import BaseAgent
 from .q_table import QTable
 
 from forage_rl.config import DefaultParams
-from forage_rl import TimedTransition, Trajectory
+from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.environments import Maze
 from forage_rl.environments.maze import MazePOMDP
+from .base import ensure_time_spent_compatible
 
 
 class MBRL(BaseAgent):
@@ -26,8 +27,10 @@ class MBRL(BaseAgent):
         gamma: float = DefaultParams.GAMMA,
         num_planning_steps: int = DefaultParams.NUM_PLANNING_STEPS,
         beta: float = DefaultParams.BETA,
+        seed: int | None = None,
     ):
-        super().__init__(maze, beta)
+        super().__init__(maze, beta, seed=seed)
+        ensure_time_spent_compatible(maze, consumer=type(self).__name__)
         self.num_episodes = num_episodes
         self.gamma = gamma
         self.num_planning_steps = num_planning_steps
@@ -69,7 +72,16 @@ class MBRL(BaseAgent):
         """
         log_likelihoods = []
 
-        for state, action, reward, next_state, time_spent in trajectory:
+        for transition in trajectory:
+            time_spent = getattr(transition, "time_spent", None)
+            if time_spent is None:
+                raise ValueError(
+                    "MBRL.simulate requires timed transitions with a time_spent field."
+                )
+            state = transition.state
+            action = transition.action
+            reward = transition.reward
+
             # Compute log-likelihood under current policy
             ai = self.q_table.global_to_local(state, action)
             action_probs = self.boltzmann_action_probs(
@@ -88,16 +100,16 @@ class MBRL(BaseAgent):
 
         return log_likelihoods
 
-    def train(self, verbose: bool = True) -> Trajectory:
-        """Train the agent and optionally save trajectories.
+    def train(self, verbose: bool = True) -> RunDataset:
+        """Train the agent and return one trajectory per episode.
 
         Args:
             verbose: Whether to print progress
 
         Returns:
-            List of transitions
+            Run dataset containing one trajectory per episode
         """
-        transitions = []
+        trajectories: list[Trajectory[TimedTransition]] = []
 
         for episode in range(self.num_episodes):
             if verbose:
@@ -106,6 +118,7 @@ class MBRL(BaseAgent):
             state, _ = self.maze.reset()
             time_spent = 0
             done = False
+            episode_transitions: list[TimedTransition] = []
 
             while not done:
                 # Choose action using Boltzmann exploration
@@ -119,7 +132,7 @@ class MBRL(BaseAgent):
                     transition, time_spent
                 )
 
-                transitions.append(timed_transition)
+                episode_transitions.append(timed_transition)
 
                 # Update reward estimate
                 self.count.update(state, action, 1.0, time_spent)
@@ -141,8 +154,10 @@ class MBRL(BaseAgent):
                 # Perform planning after each transition
                 self.q_value_iteration()
 
+            trajectories.append(Trajectory(transitions=episode_transitions))
+
         if verbose:
             print("Training completed.")
             self.print_policy()
 
-        return Trajectory(transitions=transitions)
+        return RunDataset(trajectories=trajectories)

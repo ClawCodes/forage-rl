@@ -32,3 +32,20 @@ def load_builtin_maze_spec(name: str = "simple") -> MazeSpec:
         raise ValueError(f"Maze spec '{name}' was not found")
 
     return _load_spec_data(spec_path)
+
+
+def builtin_maze_horizon(name: str = "simple") -> int:
+    """Return the built-in default horizon for a named maze spec."""
+    return int(load_builtin_maze_spec(name).maze.horizon)
+
+
+def resolve_effective_horizon(
+    maze_name: str,
+    horizon: int | None = None,
+) -> int:
+    """Resolve a CLI override horizon against the built-in maze default."""
+    if horizon is None:
+        return builtin_maze_horizon(maze_name)
+    if horizon <= 0:
+        raise ValueError(f"horizon must be > 0, got {horizon}")
+    return int(horizon)
