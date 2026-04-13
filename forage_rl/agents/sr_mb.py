@@ -33,8 +33,9 @@ class SRMBAgent(BaseSRAgent):
         alpha_w: float = DefaultParams.ALPHA_W,
         alpha_pi: float = DefaultParams.ALPHA_PI,
         beta: float = DefaultParams.BETA,
+        seed: int | None = None,
     ):
-        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta)
+        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta, seed)
         self.alpha_pi = alpha_pi
 
         n = maze.observation_space.n  # type: ignore

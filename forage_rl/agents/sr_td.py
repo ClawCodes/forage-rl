@@ -31,8 +31,9 @@ class SRTDAgent(BaseSRAgent):
         alpha_sr: float = DefaultParams.ALPHA_SR,
         alpha_w: float = DefaultParams.ALPHA_W,
         beta: float = DefaultParams.BETA,
+        seed: int | None = None,
     ):
-        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta)
+        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta, seed)
 
     def update_M(self, state: int, next_state: int) -> None:
         """TD update to row M(s,:) after observing transition s → s' (Eq 10)."""

@@ -36,8 +36,9 @@ class SRDynaAgent(BaseSRAgent):
         alpha_w: float = DefaultParams.ALPHA_W,
         beta: float = DefaultParams.BETA,
         k_replay: int = DefaultParams.K_REPLAY,
+        seed: int | None = None,
     ):
-        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta)
+        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta, seed)
         self.k_replay = k_replay
 
         self.sa_to_flat, self.flat_to_sa, n_sa = self._build_sa_index()
