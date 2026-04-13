@@ -4,30 +4,10 @@ from __future__ import annotations
 
 import argparse
 
-from forage_rl.agents.registry import (
-    PolicySpec,
-    neural_agents,
-)
+from forage_rl.agents.registry import Agent, EvaluatorSpec, neural_agents
 from forage_rl.config import DefaultParams
-from forage_rl.experiments.artifact_scenarios import (
-    ArtifactScenario,
-    EvaluatorMode,
-    benchmark_suite_scenarios,
-    default_evaluators,
-    default_sources,
-    default_scenarios,
-    filter_evaluators,
-    neural_context_evaluators,
-    neural_context_policies,
-    reward_timing_evaluators,
-    reward_timing_benchmark_scenarios,
-    selected_settings,
-)
 from forage_rl.experiments.generate_trajectories import run_generation_experiment
 from forage_rl.experiments.model_inference import run_inference_experiment
-from forage_rl.experiments.reward_timing_benchmark import (
-    analyze_reward_timing_benchmark,
-)
 from forage_rl.experiments.train_pretrained_agents import train_pretrained_agents
 from forage_rl.visualization.plots import (
     plot_aggregate_comparison,
@@ -35,17 +15,66 @@ from forage_rl.visualization.plots import (
     plot_episode_return_comparison,
 )
 
-# Re-export the extracted scenario helpers to keep the existing module-level API stable.
-_default_sources = default_sources
-_default_evaluators = default_evaluators
-_neural_context_policies = neural_context_policies
-_neural_context_evaluators = neural_context_evaluators
-_reward_timing_evaluators = reward_timing_evaluators
-_selected_settings = selected_settings
-_default_scenarios = default_scenarios
-_reward_timing_benchmark_scenarios = reward_timing_benchmark_scenarios
-_benchmark_suite_scenarios = benchmark_suite_scenarios
-_filter_evaluators = filter_evaluators
+EvaluatorMode = str
+
+
+def default_sources() -> list[Agent]:
+    return [Agent.MBRL, Agent.QLearning, Agent.DQN, Agent.ELMAN, Agent.GRU, Agent.LSTM]
+
+
+def default_evaluators() -> list[Agent | EvaluatorSpec]:
+    evaluators: list[Agent | EvaluatorSpec] = [Agent.MBRL, Agent.QLearning]
+    for agent in neural_agents():
+        evaluators.append(EvaluatorSpec(agent=agent, mode="fresh"))
+        evaluators.append(EvaluatorSpec(agent=agent, mode="pretrained"))
+    return evaluators
+
+
+def filter_evaluators(
+    evaluators: list[Agent | EvaluatorSpec],
+    evaluator_mode: EvaluatorMode,
+) -> list[Agent | EvaluatorSpec]:
+    """Filter neural evaluator modes while preserving tabular baselines."""
+    if evaluator_mode == "all":
+        return evaluators
+
+    filtered: list[Agent | EvaluatorSpec] = []
+    for evaluator in evaluators:
+        if isinstance(evaluator, Agent):
+            filtered.append(evaluator)
+        elif evaluator.mode == evaluator_mode:
+            filtered.append(evaluator)
+    return filtered
+
+
+def selected_settings(
+    mazes: list[str] | None = None,
+    observability: str = "all",
+    *,
+    verbose: bool = False,
+) -> list[tuple[str, bool]]:
+    requested_mazes = ["simple", "full"] if mazes is None else mazes
+    supported_settings: list[tuple[str, bool]] = [
+        ("simple", True),
+        ("full", True),
+        ("full", False),
+    ]
+    selected = [
+        (maze_name, observable)
+        for maze_name, observable in supported_settings
+        if maze_name in requested_mazes
+        and (
+            observability == "all"
+            or (observability == "fo" and observable)
+            or (observability == "po" and not observable)
+        )
+    ]
+    if "simple" in requested_mazes and observability in {"all", "po"} and verbose:
+        print(
+            "Skipping simple/PO in regenerate_artifacts because it is redundant "
+            "with simple/FO for the current artifact set."
+        )
+    return selected
 
 
 def regenerate_artifacts(
@@ -62,150 +91,96 @@ def regenerate_artifacts(
     skip_generation: bool = False,
     skip_inference: bool = False,
     skip_figures: bool = False,
-    reward_timing_benchmark: bool = False,
-    benchmark_suite: bool = False,
     evaluator_mode: EvaluatorMode = "all",
     verbose: bool = True,
 ) -> None:
     """Rebuild trajectory datasets, inference outputs, and figures."""
-    if sum((reward_timing_benchmark, benchmark_suite)) > 1:
-        raise ValueError(
-            "benchmark_suite and reward_timing_benchmark are mutually exclusive presets."
-        )
     if evaluator_mode == "fresh" and train_pretrained:
         raise ValueError(
             "Fresh-only artifact regeneration does not use pretrained checkpoints; "
             "drop --train-pretrained or use --evaluator-mode all/pretrained."
         )
 
-    if benchmark_suite:
-        scenarios = benchmark_suite_scenarios()
-        if verbose:
-            print(
-                "Using benchmark suite preset: full baseline and full context."
-            )
-    elif reward_timing_benchmark:
-        scenarios = reward_timing_benchmark_scenarios()
-        if verbose:
-            print(
-                "Using reward timing benchmark preset: maze=full, observable=PO, "
-                "comparing prev_reward and prev_reward_time DQN/ELMAN/GRU/LSTM variants."
-            )
-    else:
-        scenarios = default_scenarios(
-            mazes,
-            observability,
-            verbose=verbose,
-        )
+    source_agents = default_sources()
+    evaluators = filter_evaluators(default_evaluators(), evaluator_mode)
     resolved_num_datasets = num_runs if num_datasets is None else num_datasets
 
-    for scenario in scenarios:
-        maze_name = scenario.maze_name
-        observable = scenario.observable
-        filtered_evaluators = filter_evaluators(
-            scenario.evaluators,
-            evaluator_mode,
-        )
+    for maze_name, observable in selected_settings(mazes, observability, verbose=verbose):
         obs_tag = "FO" if observable else "PO"
         if verbose:
             print(f"\n=== Setting: maze={maze_name}, observable={obs_tag} ===")
 
         if train_pretrained:
-            for context_mode in scenario.train_context_modes:
-                train_pretrained_agents(
-                    agent_types=neural_agents(),
-                    maze_name=maze_name,
-                    observable=observable,
-                    num_episodes=DefaultParams.NUM_EPISODES * 5,
-                    device=device,
-                    seed=seed,
-                    verbose=verbose,
-                    context_mode=context_mode,
-                    horizon=horizon,
-                )
+            train_pretrained_agents(
+                agent_types=neural_agents(),
+                maze_name=maze_name,
+                observable=observable,
+                num_episodes=DefaultParams.NUM_EPISODES * 5,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                context_mode="legacy_context",
+                horizon=horizon,
+            )
 
         if not skip_generation:
-            for context_mode in scenario.generation_context_modes:
-                run_generation_experiment(
-                    agent_types=list(scenario.source_agents),
-                    maze_name=maze_name,
-                    num_runs=num_runs,
-                    num_episodes=num_episodes,
-                    observable=observable,
-                    verbose=verbose,
-                    workers=workers,
-                    base_seed=seed,
-                    device=device,
-                    context_mode=context_mode,
-                    horizon=horizon,
-                )
+            run_generation_experiment(
+                agent_types=source_agents,
+                maze_name=maze_name,
+                num_runs=num_runs,
+                num_episodes=num_episodes,
+                observable=observable,
+                verbose=verbose,
+                workers=workers,
+                base_seed=seed,
+                device=device,
+                context_mode="legacy_context",
+                horizon=horizon,
+            )
 
         if not skip_inference:
-            for context_mode in scenario.inference_context_modes:
-                run_inference_experiment(
-                    source_agents=list(scenario.source_agents),
-                    compare_to=list(filtered_evaluators),
-                    maze_name=maze_name,
-                    num_datasets=resolved_num_datasets,
-                    observable=observable,
-                    verbose=verbose,
-                    workers=workers,
-                    device=device,
-                    base_seed=seed,
-                    source_context_mode=context_mode,
-                    horizon=horizon,
-                )
+            run_inference_experiment(
+                source_agents=source_agents,
+                compare_to=evaluators,
+                maze_name=maze_name,
+                num_datasets=resolved_num_datasets,
+                observable=observable,
+                verbose=verbose,
+                workers=workers,
+                device=device,
+                base_seed=seed,
+                source_context_mode="legacy_context",
+                horizon=horizon,
+            )
 
         if not skip_figures:
             plot_episode_return_comparison(
                 maze_name=maze_name,
                 observable=observable,
-                agents=list(scenario.figure_policies),
+                agents=source_agents,
                 save=True,
                 show=False,
-                filename_suffix=scenario.filename_suffix,
-                benchmark_label=scenario.benchmark_label,
-                benchmark_note=scenario.benchmark_note,
                 horizon=horizon,
             )
-            for source in scenario.figure_policies:
+            for source in source_agents:
                 plot_aggregate_trajectory_stats(
                     source,
                     maze_name=maze_name,
                     observable=observable,
-                    cohort_policies=list(scenario.figure_policies),
+                    cohort_policies=source_agents,
                     save=True,
                     show=False,
-                    filename_suffix=scenario.filename_suffix,
-                    benchmark_label=scenario.benchmark_label,
-                    benchmark_note=scenario.benchmark_note,
                     horizon=horizon,
                 )
                 plot_aggregate_comparison(
                     source,
-                    list(filtered_evaluators),
+                    evaluators,
                     maze_name=maze_name,
+                    num_datasets=resolved_num_datasets,
                     observable=observable,
                     save=True,
                     show=False,
-                    filename_suffix=scenario.filename_suffix,
-                    benchmark_label=scenario.benchmark_label,
-                    benchmark_note=scenario.benchmark_note,
                     horizon=horizon,
-                )
-            if scenario.filename_suffix == "reward_timing_benchmark":
-                analyze_reward_timing_benchmark(
-                    maze_name=maze_name,
-                    observable=observable,
-                    policies=[
-                        policy
-                        for policy in scenario.figure_policies
-                        if isinstance(policy, PolicySpec)
-                    ],
-                    num_datasets=resolved_num_datasets,
-                    filename_suffix=scenario.filename_suffix,
-                    horizon=horizon,
-                    verbose=verbose,
                 )
 
 
@@ -287,21 +262,6 @@ def main() -> None:
         help="Skip figure rendering.",
     )
     parser.add_argument(
-        "--reward-timing-benchmark",
-        action="store_true",
-        help=(
-            "Run the dedicated reward timing benchmark on full/PO with "
-            "prev_reward and prev_reward_time DQN/ELMAN/GRU/LSTM variants."
-        ),
-    )
-    parser.add_argument(
-        "--benchmark-suite",
-        action="store_true",
-        help=(
-            "Run the recommended benchmark suite on full/FO and full/PO."
-        ),
-    )
-    parser.add_argument(
         "--evaluator-mode",
         choices=("all", "fresh", "pretrained"),
         default="all",
@@ -313,10 +273,6 @@ def main() -> None:
     parser.add_argument("--quiet", action="store_true", help="Suppress progress output.")
 
     args = parser.parse_args()
-    if sum((args.reward_timing_benchmark, args.benchmark_suite)) > 1:
-        parser.error(
-            "--benchmark-suite and --reward-timing-benchmark are mutually exclusive."
-        )
     if args.evaluator_mode == "fresh" and args.train_pretrained:
         parser.error(
             "--train-pretrained cannot be used with --evaluator-mode fresh "
@@ -336,8 +292,6 @@ def main() -> None:
         skip_generation=args.skip_generation,
         skip_inference=args.skip_inference,
         skip_figures=args.skip_figures,
-        reward_timing_benchmark=args.reward_timing_benchmark,
-        benchmark_suite=args.benchmark_suite,
         evaluator_mode=args.evaluator_mode,
         verbose=not args.quiet,
     )

@@ -38,25 +38,6 @@ on `cuda` and `mps`; CPU neural workloads still use multiprocessing with
 `drqn` remains accepted as a legacy alias for `lstm`, but canonical saved
 artifacts and benchmark labels now use `lstm`.
 
-## Primary Benchmark Suite
-
-Run the recommended benchmark suite with:
-
-```bash
-uv run python -m forage_rl.experiments.regenerate_artifacts --benchmark-suite --train-pretrained --device auto
-```
-
-This suite centers:
-
-- `full/FO` baseline
-- `full/PO` baseline
-- `full/FO` neural context benchmark
-- `full/PO` neural context benchmark
-- `full/PO` reward timing benchmark
-
-`simple` remains available for legacy and regression coverage, but it is not
-part of the main benchmark story.
-
 ## Legacy Artifact Pipeline
 
 Run the older artifact pipeline with:
@@ -122,27 +103,6 @@ artifact regeneration when you want longer or shorter episodes than the built-in
 maze default. `--num-episodes` changes how many episodes are generated per run;
 `--horizon` changes how many transitions each episode can contain.
 
-For the dedicated reward timing benchmark only, run:
-
-```bash
-uv run python -m forage_rl.experiments.regenerate_artifacts --reward-timing-benchmark --train-pretrained --device auto
-```
-
-That preset targets `full/PO` only and compares:
-
-- `DQN (obs+prev_reward)`
-- `ELMAN (obs+prev_reward)`
-- `GRU (obs+prev_reward)`
-- `LSTM (obs+prev_reward)`
-- `DQN (obs+prev_reward+time)`
-- `ELMAN (obs+prev_reward+time)`
-- `GRU (obs+prev_reward+time)`
-- `LSTM (obs+prev_reward+time)`
-
-It also writes a Markdown behavior-probe report to `outputs/reports/` plus
-benchmark-specific figures covering leave probability, dwell length, and MVT
-deviation diagnostics.
-
 ## Trajectory Generation
 
 ```bash
@@ -184,18 +144,6 @@ Train canonical legacy final checkpoints for all neural agents with:
 
 ```bash
 python -m forage_rl.experiments.train_pretrained_agents --agents all --maze simple --device auto
-```
-
-For benchmark-suite neural checkpoints:
-
-```bash
-python -m forage_rl.experiments.train_pretrained_agents --agents dqn elman gru lstm --maze full --pomdp --context-mode observation_only --device auto
-```
-
-For reward-timing checkpoints:
-
-```bash
-python -m forage_rl.experiments.train_pretrained_agents --agents dqn elman gru lstm --maze full --pomdp --context-mode prev_reward_time --device auto
 ```
 
 Canonical checkpoint paths:
