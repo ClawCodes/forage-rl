@@ -8,28 +8,37 @@ from .model_based import MBRL
 from .q_learning import QLearning, QLearningTime
 from .q_table import QTable
 from .registry import EvaluatorSpec, PolicySpec, get_agent, registered_agents
+from .sr_dyna import SRDynaAgent
+from .sr_mb import SRMBAgent
+from .sr_td import SRTDAgent
+from .successor_base import BaseSRAgent
 from .value_iteration import ValueIterationSolver
 
 if TYPE_CHECKING:
     from .dqn import DQNAgent
-    from .drqn import DRQNAgent
     from .recurrent import ElmanAgent, GRUAgent, LSTMAgent
 
+    DRQNAgent = LSTMAgent
+
 __all__ = [
+    "BaseSRAgent",
     "DQNAgent",
     "DRQNAgent",
     "ElmanAgent",
+    "EvaluatorSpec",
+    "get_agent",
     "GRUAgent",
     "LSTMAgent",
+    "MBRL",
+    "PolicySpec",
     "QLearning",
     "QLearningTime",
-    "MBRL",
     "QTable",
-    "ValueIterationSolver",
-    "EvaluatorSpec",
-    "PolicySpec",
-    "get_agent",
     "registered_agents",
+    "SRDynaAgent",
+    "SRMBAgent",
+    "SRTDAgent",
+    "ValueIterationSolver",
 ]
 
 
@@ -41,10 +50,10 @@ def __getattr__(name: str) -> Any:
         return DQNAgent
 
     if name == "DRQNAgent":
-        from .drqn import DRQNAgent
+        from .recurrent import LSTMAgent
 
-        globals()[name] = DRQNAgent
-        return DRQNAgent
+        globals()[name] = LSTMAgent
+        return LSTMAgent
 
     if name in {"ElmanAgent", "GRUAgent", "LSTMAgent"}:
         from .recurrent import ElmanAgent, GRUAgent, LSTMAgent

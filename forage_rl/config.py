@@ -20,7 +20,6 @@ def ensure_directories():
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# Default hyperparameters
 class DefaultParams:
     """Default constants used across training, inference, and planning."""
 
@@ -37,10 +36,18 @@ class DefaultParams:
 
     # Environment parameters
     HORIZON = 100  # Maximum timesteps per episode
+    MAX_TIME_SPENT = 10
 
     # Value iteration parameters
     NUM_PLANNING_STEPS = 10
     CONVERGENCE_THRESHOLD = 0.01
+
+    # Successor representation parameters
+    ALPHA_SR = 0.3  # SR matrix learning rate
+    ALPHA_W = 0.3  # Reward weight learning rate
+    ALPHA_PI = 0.1  # Policy learning rate (SR-MB only)
+    K_REPLAY = 10  # Replay steps per transition (SR-Dyna)
+
     # Neural agent parameters
     NEURAL_FEATURE_SCHEMA_VERSION = 2
     LEARNING_RATE = 1e-3

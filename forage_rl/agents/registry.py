@@ -8,14 +8,22 @@ from typing import Callable, Literal
 from forage_rl.agents.base import BaseAgent
 from forage_rl.agents.model_based import MBRL
 from forage_rl.agents.q_learning import QLearningTime
+from forage_rl.agents.sr_dyna import SRDynaAgent
+from forage_rl.agents.sr_mb import SRMBAgent
+from forage_rl.agents.sr_td import SRTDAgent
 from forage_rl.config import DefaultParams
 
 AgentFactory = Callable[..., BaseAgent]
+
+_NON_CONSTRUCTOR_KWARGS = {"device", "init_mode", "checkpoint_path", "context_mode"}
 
 
 class Agent(StrEnum):
     MBRL = "mbrl"
     QLearning = "q_learning"
+    SRTD = "sr_td"
+    SRMB = "sr_mb"
+    SRDyna = "sr_dyna"
     DQN = "dqn"
     ELMAN = "elman"
     GRU = "gru"
@@ -53,6 +61,9 @@ CANONICAL_AGENT_ALIASES: dict[Agent, Agent] = {
 CANONICAL_AGENT_ORDER: tuple[Agent, ...] = (
     Agent.MBRL,
     Agent.QLearning,
+    Agent.SRTD,
+    Agent.SRMB,
+    Agent.SRDyna,
     Agent.DQN,
     Agent.ELMAN,
     Agent.GRU,
@@ -93,7 +104,7 @@ def agent_display_label(agent: Agent) -> str:
     resolved = canonical_agent(agent)
     if resolved == Agent.QLearning:
         return "Q-Learning"
-    return resolved.value.upper()
+    return resolved.value.replace("_", "-").upper()
 
 
 def neural_agents() -> list[Agent]:
@@ -158,6 +169,12 @@ class EvaluatorSpec:
                 f"{resolved.value}_{context_mode_token(self.context_mode)}_{self.mode}"
             )
         return f"{resolved.value}_{self.mode}"
+
+
+def _filtered_kwargs(kwargs: dict) -> dict:
+    return {
+        key: value for key, value in kwargs.items() if key not in _NON_CONSTRUCTOR_KWARGS
+    }
 
 
 def _build_dqn_agent(maze, **kwargs) -> BaseAgent:
@@ -256,11 +273,7 @@ def _build_mbrl_agent(maze, **kwargs) -> BaseAgent:
         maze,
         num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        **{
-            key: value
-            for key, value in kwargs.items()
-            if key not in {"device", "init_mode", "checkpoint_path", "context_mode"}
-        },
+        **_filtered_kwargs(kwargs),
     )
 
 
@@ -269,17 +282,54 @@ def _build_q_learning_agent(maze, **kwargs) -> BaseAgent:
         maze,
         num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
         alpha=kwargs.pop("alpha", DefaultParams.ALPHA),
-        **{
-            key: value
-            for key, value in kwargs.items()
-            if key not in {"device", "init_mode", "checkpoint_path", "context_mode"}
-        },
+        **_filtered_kwargs(kwargs),
+    )
+
+
+def _build_sr_td_agent(maze, **kwargs) -> BaseAgent:
+    return SRTDAgent(
+        maze,
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
+        alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
+        alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
+        beta=kwargs.pop("beta", DefaultParams.BETA),
+        **_filtered_kwargs(kwargs),
+    )
+
+
+def _build_sr_mb_agent(maze, **kwargs) -> BaseAgent:
+    return SRMBAgent(
+        maze,
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
+        alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
+        alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
+        alpha_pi=kwargs.pop("alpha_pi", DefaultParams.ALPHA_PI),
+        beta=kwargs.pop("beta", DefaultParams.BETA),
+        **_filtered_kwargs(kwargs),
+    )
+
+
+def _build_sr_dyna_agent(maze, **kwargs) -> BaseAgent:
+    return SRDynaAgent(
+        maze,
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
+        alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
+        alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
+        beta=kwargs.pop("beta", DefaultParams.BETA),
+        k_replay=kwargs.pop("k_replay", DefaultParams.K_REPLAY),
+        **_filtered_kwargs(kwargs),
     )
 
 
 AGENT_REGISTRY: dict[Agent, AgentFactory] = {
     Agent.MBRL: _build_mbrl_agent,
     Agent.QLearning: _build_q_learning_agent,
+    Agent.SRTD: _build_sr_td_agent,
+    Agent.SRMB: _build_sr_mb_agent,
+    Agent.SRDyna: _build_sr_dyna_agent,
     Agent.DQN: _build_dqn_agent,
     Agent.ELMAN: _build_elman_agent,
     Agent.GRU: _build_gru_agent,
