@@ -7,10 +7,16 @@ import argparse
 import numpy as np
 
 from forage_rl.agents import get_agent
-from forage_rl.agents.registry import Agent
+from forage_rl.agents.registry import (
+    Agent,
+    NEURAL_CONTEXT_MODES,
+    NeuralContextMode,
+    is_neural_agent,
+    neural_agents,
+)
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
-from forage_rl.utils import load_run_dataset
+from forage_rl.utils import load_run_dataset, load_run_dataset_metadata
 
 
 def inspect_neural_context(
@@ -21,22 +27,41 @@ def inspect_neural_context(
     episode_index: int,
     observable: bool = True,
     device: str = "auto",
+    context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> list[dict[str, object]]:
     """Load one saved episode and return the neural context trace."""
-    if agent_type not in {Agent.DQN, Agent.DRQN}:
+    if not is_neural_agent(agent_type):
         raise ValueError(
             f"Context inspection only supports neural agents, got {agent_type.value}."
         )
 
-    run_dataset = load_run_dataset(agent_type, run_id, maze_name, observable)
+    metadata = load_run_dataset_metadata(
+        agent_type,
+        run_id,
+        maze_name,
+        observable,
+        context_mode=context_mode,
+        horizon=horizon,
+    )
+    run_dataset = load_run_dataset(
+        agent_type,
+        run_id,
+        maze_name,
+        observable,
+        context_mode=context_mode,
+        horizon=horizon,
+    )
     trajectory = run_dataset.trajectories[episode_index]
+    resolved_horizon = int(metadata["horizon"])
     maze_spec = load_builtin_maze_spec(maze_name)
     maze_cls = Maze if observable else MazePOMDP
     agent = get_agent(
         agent_type,
-        maze_cls(maze_spec),
+        maze_cls(maze_spec, horizon=resolved_horizon),
         num_episodes=1,
         device=device,
+        context_mode=context_mode,
         seed=DefaultParams.FRESH_EVALUATOR_SEED,
     )
     return agent.context_trace(trajectory)
@@ -90,12 +115,14 @@ def format_context_rows(rows: list[dict[str, object]], steps: int | None = None)
 
 
 def main() -> None:
+    supported_agents = [agent.value for agent in neural_agents()]
+    supported_agents.append(Agent.DRQN.value)
     parser = argparse.ArgumentParser(
         description="Inspect the neural-context encoding for one saved episode",
     )
     parser.add_argument(
         "--agent",
-        choices=[Agent.DQN.value, Agent.DRQN.value],
+        choices=supported_agents,
         required=True,
         help="Neural agent whose saved run dataset should be inspected",
     )
@@ -132,6 +159,18 @@ def main() -> None:
         default="auto",
         help="Torch device for agent instantiation: auto, cpu, cuda, or mps",
     )
+    parser.add_argument(
+        "--context-mode",
+        choices=list(NEURAL_CONTEXT_MODES),
+        default="legacy_context",
+        help="Neural input context mode for the saved run dataset and inspector agent.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        help="Optional episode-length override used to locate the saved run dataset.",
+    )
 
     args = parser.parse_args()
     rows = inspect_neural_context(
@@ -141,6 +180,8 @@ def main() -> None:
         episode_index=args.episode_index,
         observable=not args.pomdp,
         device=args.device,
+        context_mode=args.context_mode,
+        horizon=args.horizon,
     )
     print(format_context_rows(rows, steps=args.steps))
 

@@ -6,9 +6,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import TypedDict
 
 from forage_rl.agents import get_agent, registered_agents
-from forage_rl.agents.registry import Agent
+from forage_rl.agents.registry import Agent, NEURAL_CONTEXT_MODES, NeuralContextMode
 from forage_rl.config import DefaultParams, ensure_directories
-from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
+from forage_rl.environments import (
+    Maze,
+    MazePOMDP,
+    load_builtin_maze_spec,
+    resolve_effective_horizon,
+)
 from forage_rl.experiments.parallel import (
     is_neural_agent,
     resolve_execution_strategy,
@@ -19,7 +24,17 @@ from forage_rl.utils.torch_support import configure_torch_worker
 from forage_rl.utils import save_run_dataset
 
 
-GenerationTask = tuple[Agent, int, str, int, bool, int | None, str]
+GenerationTask = tuple[
+    Agent,
+    int,
+    str,
+    int,
+    bool,
+    int | None,
+    str,
+    NeuralContextMode,
+    int | None,
+]
 
 
 class GenerationResult(TypedDict):
@@ -51,17 +66,40 @@ def _build_generation_tasks(
     observable: bool,
     base_seed: int | None,
     device: str,
+    context_mode: NeuralContextMode,
+    horizon: int | None,
 ) -> list[GenerationTask]:
     return [
-        (agent_type, run_id, maze_name, num_episodes, observable, base_seed, device)
+        (
+            agent_type,
+            run_id,
+            maze_name,
+            num_episodes,
+            observable,
+            base_seed,
+            device,
+            context_mode,
+            horizon,
+        )
         for agent_type in agent_types
         for run_id in range(num_runs)
     ]
 
 
 def _generate_single_run(task: GenerationTask) -> GenerationResult:
-    agent_type, run_id, maze_name, num_episodes, observable, base_seed, device = task
+    (
+        agent_type,
+        run_id,
+        maze_name,
+        num_episodes,
+        observable,
+        base_seed,
+        device,
+        context_mode,
+        horizon,
+    ) = task
 
+    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
     maze_cls = Maze if observable else MazePOMDP
     run_seed = None if base_seed is None else base_seed + run_id
@@ -71,13 +109,14 @@ def _generate_single_run(task: GenerationTask) -> GenerationResult:
         configure_torch_worker(device)
 
     start = time.perf_counter()
-    maze = maze_cls(maze_spec, seed=run_seed)
+    maze = maze_cls(maze_spec, seed=run_seed, horizon=resolved_horizon)
     agent = get_agent(
         agent_type,
         maze,
         num_episodes=num_episodes,
         seed=agent_seed,
         device=device,
+        context_mode=context_mode,
     )
     run_dataset = agent.train(verbose=False)
     filepath = save_run_dataset(
@@ -86,6 +125,8 @@ def _generate_single_run(task: GenerationTask) -> GenerationResult:
         run_id,
         maze_name,
         observable,
+        context_mode=context_mode,
+        horizon=resolved_horizon,
     )
 
     return {
@@ -182,6 +223,8 @@ def run_generation_experiment(
     workers: int | None = None,
     base_seed: int | None = None,
     device: str = "auto",
+    context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> None:
     """Generate trajectories for one or more registered agents."""
     ensure_directories()
@@ -212,6 +255,8 @@ def run_generation_experiment(
             observable=observable,
             base_seed=base_seed,
             device=device,
+            context_mode=context_mode,
+            horizon=horizon,
         )
         _execute_generation_tasks(
             tasks,
@@ -236,6 +281,8 @@ def generate_trajectories(
     workers: int | None = None,
     base_seed: int | None = None,
     device: str = "auto",
+    context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> None:
     """Generate trajectories from a single registered agent."""
     run_generation_experiment(
@@ -248,6 +295,8 @@ def generate_trajectories(
         workers=workers,
         base_seed=base_seed,
         device=device,
+        context_mode=context_mode,
+        horizon=horizon,
     )
 
 
@@ -257,7 +306,7 @@ def main() -> None:
         "--agents",
         nargs="+",
         default=["all"],
-        help="Agent name(s) to run, or 'all' for every registered agent",
+        help="Agent name(s) to run, or 'all' for every canonical registered agent.",
     )
     parser.add_argument(
         "--num-runs",
@@ -288,6 +337,18 @@ def main() -> None:
         default="auto",
         help="Torch device for neural agents: auto, cpu, cuda, or mps",
     )
+    parser.add_argument(
+        "--context-mode",
+        choices=list(NEURAL_CONTEXT_MODES),
+        default="legacy_context",
+        help="Neural input context mode for DQN/Elman/GRU/LSTM; ignored by non-neural agents.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        help="Optional episode-length override; default uses the built-in maze horizon.",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
     parser.add_argument(
         "--maze",
@@ -312,6 +373,8 @@ def main() -> None:
         workers=args.workers,
         base_seed=args.seed,
         device=args.device,
+        context_mode=args.context_mode,
+        horizon=args.horizon,
     )
 
 

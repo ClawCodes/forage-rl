@@ -9,10 +9,20 @@ import numpy as np
 
 from forage_rl import RunDataset, Trajectory
 from forage_rl.agents import get_agent, registered_agents
-from forage_rl.agents.registry import Agent, EvaluatorSpec
+from forage_rl.agents.registry import (
+    Agent,
+    EvaluatorSpec,
+    NEURAL_CONTEXT_MODES,
+    NeuralContextMode,
+)
 from forage_rl.config import DefaultParams
 from forage_rl.config import ensure_directories
-from forage_rl.environments import Maze, MazePOMDP, load_builtin_maze_spec
+from forage_rl.environments import (
+    Maze,
+    MazePOMDP,
+    load_builtin_maze_spec,
+    resolve_effective_horizon,
+)
 from forage_rl.experiments.parallel import (
     is_neural_agent,
     resolve_execution_strategy,
@@ -22,13 +32,24 @@ from forage_rl.experiments.parallel import (
 from forage_rl.utils import (
     list_run_dataset_run_ids,
     load_run_dataset,
+    load_run_dataset_metadata,
     save_logprobs,
 )
 from forage_rl.utils.torch_support import configure_torch_worker
 
 
 EvaluatorInput = Agent | EvaluatorSpec
-InferenceTask = tuple[Agent, int, str, tuple[EvaluatorSpec, ...], bool, str, int]
+InferenceTask = tuple[
+    Agent,
+    int,
+    str,
+    tuple[EvaluatorSpec, ...],
+    bool,
+    str,
+    int,
+    NeuralContextMode,
+    int | None,
+]
 
 
 def _parse_agents(values: list[str]) -> list[Agent]:
@@ -43,7 +64,10 @@ def _normalize_evaluator(evaluator: EvaluatorInput) -> EvaluatorSpec:
     return EvaluatorSpec(agent=evaluator, mode="fresh")
 
 
-def _parse_evaluators(values: list[str]) -> list[EvaluatorInput]:
+def _parse_evaluators(
+    values: list[str],
+    neural_context_mode: NeuralContextMode = "legacy_context",
+) -> list[EvaluatorInput]:
     if values == ["all"]:
         return registered_agents()
 
@@ -63,7 +87,10 @@ def _parse_evaluators(values: list[str]) -> list[EvaluatorInput]:
             raise ValueError(
                 f"Pretrained evaluators are only supported for neural agents, got {agent.value}."
             )
-        evaluators.append(EvaluatorSpec(agent=agent, mode=mode))
+        context_mode = neural_context_mode if is_neural_agent(agent) else "legacy_context"
+        evaluators.append(
+            EvaluatorSpec(agent=agent, mode=mode, context_mode=context_mode)
+        )
 
     return evaluators
 
@@ -75,11 +102,14 @@ def evaluate_trajectory(
     observable: bool = True,
     device: str = "auto",
     seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    source_context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> dict[EvaluatorSpec, np.ndarray]:
     """Evaluate one episode under each specified agent model."""
     if evaluators is None:
         evaluators = registered_agents()
 
+    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
     maze_cls = Maze if observable else MazePOMDP
     results = {}
@@ -88,10 +118,11 @@ def evaluate_trajectory(
             configure_torch_worker(device)
         agent = get_agent(
             evaluator.agent,
-            maze_cls(maze_spec),
+            maze_cls(maze_spec, horizon=resolved_horizon),
             device=device,
             init_mode=evaluator.mode,
             checkpoint_path=evaluator.checkpoint_path,
+            context_mode=evaluator.context_mode,
             seed=seed,
         )
         results[evaluator] = np.array(agent.simulate(trajectory))
@@ -104,8 +135,10 @@ def _build_evaluator_agents(
     observable: bool,
     device: str,
     seed: int,
+    horizon: int | None = None,
 ) -> dict[EvaluatorSpec, object]:
     """Instantiate one evaluator agent per spec for reuse across a run."""
+    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
     maze_cls = Maze if observable else MazePOMDP
     evaluator_agents: dict[EvaluatorSpec, object] = {}
@@ -114,10 +147,11 @@ def _build_evaluator_agents(
             configure_torch_worker(device)
         evaluator_agents[evaluator] = get_agent(
             evaluator.agent,
-            maze_cls(maze_spec),
+            maze_cls(maze_spec, horizon=resolved_horizon),
             device=device,
             init_mode=evaluator.mode,
             checkpoint_path=evaluator.checkpoint_path,
+            context_mode=evaluator.context_mode,
             seed=seed,
         )
     return evaluator_agents
@@ -130,17 +164,21 @@ def evaluate_run_dataset(
     observable: bool = True,
     device: str = "auto",
     seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    source_context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> dict[EvaluatorSpec, np.ndarray]:
     """Evaluate one run dataset with persistent per-run evaluator state."""
     if evaluators is None:
         evaluators = registered_agents()
 
+    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     evaluator_agents = _build_evaluator_agents(
         maze_name=maze_name,
         evaluators=evaluators,
         observable=observable,
         device=device,
         seed=seed,
+        horizon=resolved_horizon,
     )
     results: dict[EvaluatorSpec, list[np.ndarray]] = {
         evaluator: [] for evaluator in evaluator_agents
@@ -161,8 +199,24 @@ def _select_run_ids(
     maze_name: str,
     observable: bool,
     num_datasets: Optional[int],
+    source_context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> list[int]:
-    run_ids = list_run_dataset_run_ids(source, maze_name, observable)
+    if is_neural_agent(source) and source_context_mode != "legacy_context":
+        run_ids = list_run_dataset_run_ids(
+            source,
+            maze_name,
+            observable,
+            context_mode=source_context_mode,
+            horizon=horizon,
+        )
+    else:
+        run_ids = list_run_dataset_run_ids(
+            source,
+            maze_name,
+            observable,
+            horizon=horizon,
+        )
     if num_datasets is None:
         return run_ids
     return run_ids[:num_datasets]
@@ -176,19 +230,38 @@ def _build_inference_tasks(
     observable: bool,
     device: str,
     base_seed: int,
+    source_context_mode: NeuralContextMode,
+    horizon: int | None,
 ) -> tuple[list[InferenceTask], list[Agent]]:
     tasks: list[InferenceTask] = []
     missing_sources: list[Agent] = []
     normalized_compare_to = tuple(_normalize_evaluator(item) for item in compare_to)
 
     for source in source_agents:
-        run_ids = _select_run_ids(source, maze_name, observable, num_datasets)
+        run_ids = _select_run_ids(
+            source,
+            maze_name,
+            observable,
+            num_datasets,
+            source_context_mode,
+            horizon,
+        )
         if not run_ids:
             missing_sources.append(source)
             continue
 
         tasks.extend(
-            (source, run_id, maze_name, normalized_compare_to, observable, device, base_seed)
+            (
+                source,
+                run_id,
+                maze_name,
+                normalized_compare_to,
+                observable,
+                device,
+                base_seed,
+                source_context_mode,
+                horizon,
+            )
             for run_id in run_ids
         )
 
@@ -196,10 +269,42 @@ def _build_inference_tasks(
 
 
 def _evaluate_dataset_task(task: InferenceTask) -> dict[str, object]:
-    source, run_id, maze_name, compare_to, observable, device, seed = task
+    (
+        source,
+        run_id,
+        maze_name,
+        compare_to,
+        observable,
+        device,
+        seed,
+        source_context_mode,
+        requested_horizon,
+    ) = task
 
     start = time.perf_counter()
-    run_dataset = load_run_dataset(source, run_id, maze_name, observable)
+    metadata = load_run_dataset_metadata(
+        source,
+        run_id,
+        maze_name,
+        observable,
+        context_mode=source_context_mode,
+        horizon=requested_horizon,
+    )
+    expected_horizon = resolve_effective_horizon(maze_name, requested_horizon)
+    source_horizon = int(metadata["horizon"])
+    if source_horizon != expected_horizon:
+        raise ValueError(
+            "Saved run dataset horizon does not match the requested setting; "
+            f"run_id={run_id} has horizon={source_horizon}, expected {expected_horizon}."
+        )
+    run_dataset = load_run_dataset(
+        source,
+        run_id,
+        maze_name,
+        observable,
+        context_mode=source_context_mode,
+        horizon=requested_horizon,
+    )
     results = evaluate_run_dataset(
         run_dataset=run_dataset,
         maze_name=maze_name,
@@ -207,6 +312,8 @@ def _evaluate_dataset_task(task: InferenceTask) -> dict[str, object]:
         observable=observable,
         device=device,
         seed=seed,
+        source_context_mode=source_context_mode,
+        horizon=source_horizon,
     )
 
     totals: dict[str, float] = {}
@@ -218,6 +325,8 @@ def _evaluate_dataset_task(task: InferenceTask) -> dict[str, object]:
             run_id,
             maze_name,
             observable,
+            source_context_mode=source_context_mode,
+            horizon=source_horizon,
         )
         totals[evaluator.label] = float(np.sum(log_liks))
 
@@ -319,6 +428,8 @@ def run_inference_experiment(
     workers: int | None = None,
     device: str = "auto",
     base_seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    source_context_mode: NeuralContextMode = "legacy_context",
+    horizon: int | None = None,
 ) -> None:
     """Run the full model inference experiment."""
     if source_agents is None:
@@ -351,6 +462,8 @@ def run_inference_experiment(
             observable=observable,
             device=device,
             base_seed=base_seed,
+            source_context_mode=source_context_mode,
+            horizon=horizon,
         )
         for source in missing_sources:
             if source in reported_missing_sources:
@@ -360,7 +473,16 @@ def run_inference_experiment(
                 f"No trajectory files for {source.value}. Run generate_trajectories.py first."
             )
         total_task_count += sum(
-            len(_select_run_ids(source, maze_name, observable, num_datasets))
+            len(
+                _select_run_ids(
+                    source,
+                    maze_name,
+                    observable,
+                    num_datasets,
+                    source_context_mode,
+                    horizon,
+                )
+            )
             for source in source_agents
             if source not in reported_missing_sources
         )
@@ -380,6 +502,8 @@ def run_inference_experiment(
             observable=observable,
             device=device,
             base_seed=base_seed,
+            source_context_mode=source_context_mode,
+            horizon=horizon,
         )
         _execute_inference_tasks(
             tasks,
@@ -406,7 +530,7 @@ def main() -> None:
         "--compare-to",
         nargs="+",
         default=["all"],
-        help="Evaluator agent name(s), e.g. mbrl, dqn:fresh, drqn:pretrained, or 'all'",
+        help="Evaluator agent name(s), e.g. mbrl, dqn:fresh, lstm:pretrained, or 'all'.",
     )
     parser.add_argument(
         "--num-datasets",
@@ -426,10 +550,22 @@ def main() -> None:
         help="Torch device for neural evaluators: auto, cpu, cuda, or mps",
     )
     parser.add_argument(
+        "--context-mode",
+        choices=list(NEURAL_CONTEXT_MODES),
+        default="legacy_context",
+        help="Neural input context mode for source/evaluator neural policies.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=DefaultParams.FRESH_EVALUATOR_SEED,
         help="Deterministic seed for fresh neural evaluators",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        help="Optional episode-length override; default uses the built-in maze horizon.",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")
     parser.add_argument(
@@ -447,7 +583,7 @@ def main() -> None:
 
     run_inference_experiment(
         source_agents=_parse_agents(args.source_agents),
-        compare_to=_parse_evaluators(args.compare_to),
+        compare_to=_parse_evaluators(args.compare_to, args.context_mode),
         maze_name=args.maze,
         num_datasets=args.num_datasets,
         observable=not args.pomdp,
@@ -455,6 +591,8 @@ def main() -> None:
         workers=args.workers,
         device=args.device,
         base_seed=args.seed,
+        source_context_mode=args.context_mode,
+        horizon=args.horizon,
     )
 
 
