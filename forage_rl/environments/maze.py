@@ -92,9 +92,6 @@ class Maze(gym.Env):
         self.action_labels = list(maze_spec.maze.action_labels)
         self.initial_state = maze_spec.maze.initial_state
 
-        # Gymnasium spaces
-        self.observation_space = Discrete(self.num_states)
-        self.action_space = Discrete(self.num_actions)
 
         # Precomputed transition tables
         self._transitions_by_state_action = maze_spec.transition_map()
@@ -108,10 +105,12 @@ class Maze(gym.Env):
 
         self.reward_models = [ForagingReward(decay, self.rng) for decay in self.decays]
 
+        # Gymnasium spaces
+        self.action_space = Discrete(self.num_actions)
         # observability-related
         self._state_to_observation_group = self._build_state_observation_map()
         self.num_observations = len(set(self._state_to_observation_group.values()))
-        self.observation_space = Discrete(self.num_observations)
+        self.observation_space = Discrete(self.num_states) if self.observable else Discrete(self.num_observations)
 
     def _build_state_observation_map(self) -> dict[int, int]:
         """Build mapping from concrete states to observation groups."""
