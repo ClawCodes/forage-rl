@@ -4,7 +4,6 @@ import numpy as np
 
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
-from forage_rl.environments.maze import MazePOMDP
 
 
 class ValueIterationSolver:
@@ -21,7 +20,7 @@ class ValueIterationSolver:
         gamma: float = DefaultParams.GAMMA,
         convergence_threshold: float = DefaultParams.CONVERGENCE_THRESHOLD,
     ):
-        if isinstance(maze, MazePOMDP):
+        if not maze.observable:
             raise ValueError(
                 "ValueIterationSolver does not support MazePOMDP because it requires "
                 "belief-state planning."

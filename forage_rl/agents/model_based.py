@@ -7,7 +7,6 @@ from .q_table import QTable
 from forage_rl.config import DefaultParams
 from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.environments import Maze
-from forage_rl.environments.maze import MazePOMDP
 from .base import ensure_time_spent_compatible
 
 
@@ -42,7 +41,7 @@ class MBRL(BaseAgent):
         """Perform Q-value iteration using learned rewards and known transitions."""
         get_transitions = (
             self.maze.obs_transition_distribution
-            if isinstance(self.maze, MazePOMDP)
+            if not self.maze.observable
             else self.maze.transition_distribution
         )
         for _ in range(self.num_planning_steps):

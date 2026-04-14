@@ -21,12 +21,7 @@ from forage_rl.analysis.patch_timing import (
 )
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments import resolve_effective_horizon
-from forage_rl.environments.maze import (
-    Maze,
-    MazeMDP,
-    MazePOMDP,
-    maze_from_builtin_maze_spec,
-)
+from forage_rl.environments.maze import Maze, maze_from_builtin_maze_spec
 from forage_rl.utils import (
     list_run_dataset_run_ids,
     load_logprobs,
@@ -398,7 +393,7 @@ def _draw_modal_residency(
     min_len = min(len(sequence) for sequence in state_sequences)
     arr = np.array([sequence[:min_len] for sequence in state_sequences])
 
-    if isinstance(maze, MazePOMDP):
+    if not maze.observable:
         n_bins = maze.num_observations
         y_labels = maze.maze_spec.observation_labels
     else:
@@ -429,7 +424,7 @@ def _draw_modal_residency(
 
 def plot_mean_trajectory_stats(
     trajectories: list[Trajectory],
-    maze: MazeMDP,
+    maze: Maze,
     source: PolicyInput,
     save: bool = False,
     show: bool = True,
@@ -450,7 +445,7 @@ def plot_mean_trajectory_stats(
         fontweight="bold",
     )
 
-    filename = f"mean_trajectory_stats_{_policy_artifact_label(source)}_{maze.maze_spec.maze.name}_{_obs_tag(not isinstance(maze, MazePOMDP))}"
+    filename = f"mean_trajectory_stats_{_policy_artifact_label(source)}_{maze.maze_spec.maze.name}_{_obs_tag(maze.observable)}"
     if filename_suffix is not None:
         filename = f"{filename}_{filename_suffix}"
     filepath = FIGURES_DIR / f"{filename}.png"
