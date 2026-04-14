@@ -78,15 +78,17 @@ class Maze(gym.Env):
         """Initialize maze dynamics from a validated spec or TOML file."""
         super().__init__()
 
+        spec_update = {"maze": maze_spec.maze}
+        if horizon is not None:
+            spec_update["maze"].horizon = horizon
+        if observable is not None:
+            spec_update["maze"].observable = observable
+
+        maze_spec = maze_spec.model_copy(update=spec_update)
         self._original_maze_spec = maze_spec
         self.rng = rng or np.random.default_rng(seed)
-        
-        self._update_from_maze_spec(maze_spec)
 
-        self.horizon = maze_spec.maze.horizon if horizon is None else horizon
-        if self.horizon <= 0:
-            raise ValueError(f"horizon must be > 0, got {self.horizon}")
-        self.observable = maze_spec.maze.observable if observable is None else observable
+        self._update_from_maze_spec(maze_spec)
 
         # Internal state
         self.state = self.initial_state
@@ -94,9 +96,8 @@ class Maze(gym.Env):
 
     def _update_from_maze_spec(self, maze_spec: MazeSpec):
         self.maze_spec = maze_spec
+
         self.horizon = maze_spec.maze.horizon
-        if self.horizon <= 0:
-            raise ValueError(f"horizon must be > 0, got {self.horizon}")
         self.observable = maze_spec.maze.observable
 
         self.num_states = maze_spec.num_states
@@ -139,23 +140,6 @@ class Maze(gym.Env):
         ] = {}
         # Gymnasium spaces
         self.action_space = Discrete(self.num_actions)
-        self.observation_space = Discrete(self.num_states) if self.observable else Discrete(self.num_observations)
-
-    def _build_state_observation_map(self) -> dict[int, int]:
-        """Build mapping from concrete states to observation groups."""
-        return {state.id: state.observation_group for state in self.maze_spec.states}
-
-    def _observe(self, state: Optional[int] = None) -> int:
-        """Return observation group id for a state (or current state by default)."""
-        state_idx = self.state if state is None else state
-        self._validate_state(state_idx)
-        return self._state_to_observation_group[state_idx]
-
-        # Gymnasium spaces
-        self.action_space = Discrete(self.num_actions)
-        # observability-related
-        self._state_to_observation_group = self._build_state_observation_map()
-        self.num_observations = len(set(self._state_to_observation_group.values()))
         self.observation_space = Discrete(self.num_states) if self.observable else Discrete(self.num_observations)
 
     def _build_state_observation_map(self) -> dict[int, int]:
@@ -409,13 +393,11 @@ class Maze(gym.Env):
         """
         obs, reward, terminated, truncated, info = self.step(action)
         transition = Transition(
-            state=info["prev_state"],
+            state=info["prev_state"] if self.observable else self._observe(info["prev_state"]),
             action=info["action"],
             reward=reward,
             next_state=obs,
         )
-        if not self.observable:
-            transition.state = self._observe(info["prev_state"])
 
         done = terminated or truncated
         return transition, done
