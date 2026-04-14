@@ -33,8 +33,9 @@ class BaseSRAgent(BaseAgent):
         alpha_sr: float = DefaultParams.ALPHA_SR,
         alpha_w: float = DefaultParams.ALPHA_W,
         beta: float = DefaultParams.BETA,
+        seed: int | None = None,
     ):
-        super().__init__(maze, beta)
+        super().__init__(maze, beta, seed)
         self.q_table = QTable(maze, timed=True)  # Q-value cache; overrides base default
 
         n = maze.observation_space.n  # type: ignore

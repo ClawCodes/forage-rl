@@ -394,27 +394,19 @@ def _draw_modal_residency(
     arr = np.array([sequence[:min_len] for sequence in state_sequences])
 
     if not maze.observable:
-        obs_map = maze._state_to_observation_group
-        obs_arr = np.vectorize(obs_map.__getitem__)(arr)
         n_bins = maze.num_observations
-        modal_values: list[int] = []
-        frequencies: list[float] = []
-        for step in range(min_len):
-            counts = np.bincount(obs_arr[:, step], minlength=n_bins)
-            modal = int(np.argmax(counts))
-            modal_values.append(modal)
-            frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.maze_spec.observation_labels
     else:
         n_bins = maze.num_states
-        modal_values = []
-        frequencies = []
-        for step in range(min_len):
-            counts = np.bincount(arr[:, step], minlength=n_bins)
-            modal = int(np.argmax(counts))
-            modal_values.append(modal)
-            frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.state_labels or [f"State {state}" for state in range(n_bins)]
+
+    modal_values: list[int] = []
+    frequencies: list[float] = []
+    for step in range(min_len):
+        counts = np.bincount(arr[:, step], minlength=n_bins)
+        modal = int(np.argmax(counts))
+        modal_values.append(modal)
+        frequencies.append(counts[modal] / len(trajectories))
 
     ax.scatter(
         range(min_len),
@@ -791,6 +783,164 @@ def plot_patch_timing_summary(
 
     filename = (
         f"patch_timing_{_policy_artifact_label(source_spec)}_"
+        f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+    )
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def _ema(values: np.ndarray, alpha: float) -> np.ndarray:
+    out = np.empty_like(values, dtype=float)
+    out[0] = values[0]
+    for i in range(1, len(values)):
+        out[i] = alpha * values[i] + (1 - alpha) * out[i - 1]
+    return out
+
+
+def _draw_cumulative_reward_single(ax: plt.Axes, trajectory: Trajectory) -> None:
+    """Draw cumulative reward over transitions with an EMA trend onto ax."""
+    rewards = np.array([t.reward for t in trajectory.transitions], dtype=float)
+    cumsum = np.cumsum(rewards)
+    x = np.arange(len(rewards))
+    ax.plot(x, cumsum, linewidth=1.5, color="#2ecc71", label="Cumulative reward")
+    window = max(1, len(rewards) // 10)
+    alpha = 2.0 / (window + 1)
+    trend = _ema(rewards, alpha)
+    ax2 = ax.twinx()
+    ax2.plot(x, trend, linewidth=2, color="#e67e22", alpha=0.8, label=f"EMA reward (w={window})")
+    ax2.set_ylabel("EMA Reward", fontsize=11, color="#e67e22")
+    ax2.tick_params(axis="y", labelcolor="#e67e22")
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel("Cumulative Reward", fontsize=12)
+    ax.set_title(f"Learning Curve (N={len(rewards)} transitions)", fontsize=14)
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, fontsize=10)
+
+
+def _draw_residency_lines(
+    ax: plt.Axes,
+    trajectory: Trajectory,
+    maze: Maze,
+    window: int | None = None,
+) -> None:
+    """Draw rolling-window residency fraction lines onto ax (one line per state/obs group).
+
+    For each transition t, plots the fraction of the preceding `window` transitions
+    spent in each state. Shows how time allocation shifts over training.
+    """
+    if not maze.observable:
+        n_bins = maze.num_observations
+        y_labels = list(maze.maze_spec.observation_labels)
+    else:
+        n_bins = maze.num_states
+        y_labels = maze.state_labels or [f"State {s}" for s in range(n_bins)]
+    states = np.array([t.state for t in trajectory.transitions])
+
+    n = len(states)
+    w = window if window is not None else max(1, n // 10)
+
+    # One-hot encode, then compute rolling fraction via cumsum.
+    # Using cumsum avoids the zero-padding distortion of np.convolve(mode="same"),
+    # which artificially ramps fractions up at the start and down at the end.
+    one_hot = np.zeros((n, n_bins), dtype=float)
+    one_hot[np.arange(n), states] = 1.0
+
+    padded = np.zeros((n + 1, n_bins), dtype=float)
+    padded[1:] = np.cumsum(one_hot, axis=0)
+
+    lo = np.maximum(0, np.arange(n) - w + 1)  # trailing window start (clamped)
+    hi = np.arange(1, n + 1)                   # trailing window end (exclusive)
+    window_sizes = (hi - lo)[:, None]           # true number of real observations
+
+    rolling = (padded[hi] - padded[lo]) / window_sizes
+
+    x = np.arange(n)
+    colors = ["#3498db", "#e67e22", "#9b59b6", "#e74c3c", "#1abc9c", "#f39c12"]
+    for s in range(n_bins):
+        label = y_labels[s] if s < len(y_labels) else f"State {s}"
+        ax.plot(x, rolling[:, s], linewidth=1.5, color=colors[s % len(colors)], label=label)
+
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel(f"Fraction of transitions (w={w})", fontsize=12)
+    ax.set_title(f"Rolling Residency (N={n} transitions)", fontsize=14)
+    ax.legend(fontsize=10)
+
+
+def _draw_residency_scatter(ax: plt.Axes, trajectory: Trajectory, maze: Maze) -> None:
+    """Draw raw residency scatter (state at each transition step) onto ax."""
+    if not maze.observable:
+        obs_map = maze._state_to_observation_group
+        states = [obs_map[t.state] for t in trajectory.transitions]
+        n_bins = maze.num_observations
+        y_labels = list(maze.maze_spec.observation_labels)
+    else:
+        states = [t.state for t in trajectory.transitions]
+        n_bins = maze.num_states
+        y_labels = maze.state_labels or [f"State {s}" for s in range(n_bins)]
+
+    x = np.arange(len(states))
+    rewards = np.array([t.reward for t in trajectory.transitions], dtype=float)
+    # Size points by absolute reward magnitude to highlight high-reward visits
+    sizes = 4 + np.abs(rewards) * 20
+    ax.scatter(x, states, s=sizes, alpha=0.4, color="#3498db")
+    ax.set_yticks(range(n_bins))
+    ax.set_yticklabels(y_labels)
+    ax.set_xlabel("Transition", fontsize=12)
+    ax.set_ylabel("Location", fontsize=12)
+    ax.set_title(f"Raw Residency (N={len(states)} transitions)", fontsize=14)
+
+
+def plot_single_run_stats(
+    source: PolicyInput,
+    maze_name: str = "simple",
+    observable: bool = True,
+    run_id: int | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+    horizon: int | None = None,
+) -> plt.Figure | None:
+    """Plot cumulative reward and raw residency scatter for one saved training run.
+
+    Contrasts with plot_mean_trajectory_stats which averages across many runs.
+    """
+    source_spec = _normalize_policy(source)
+    available_ids = _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+    if not available_ids:
+        print(f"No run datasets found for '{_policy_label(source_spec)}' on {maze_name}.")
+        return None
+
+    selected_id = run_id if run_id is not None else available_ids[0]
+    run_dataset = _load_policy_run_dataset(
+        source_spec, selected_id, maze_name, observable, horizon=horizon
+    )
+    trajectory = _flatten_run_dataset(run_dataset)
+
+    resolved_horizon = resolve_effective_horizon(maze_name, horizon)
+    maze = maze_from_builtin_maze_spec(maze_name, observable, horizon=resolved_horizon)
+
+    fig, (ax_reward, ax_residency) = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
+    _draw_cumulative_reward_single(ax_reward, trajectory)
+    _draw_residency_lines(ax_residency, trajectory, maze)
+
+    fig.suptitle(
+        _figure_title(
+            f"Single-Run Overview: '{_policy_label(source_spec)}' "
+            f"(run {selected_id}, {maze_name}, {_obs_tag(observable)})",
+            benchmark_label,
+        ),
+        fontsize=16,
+        fontweight="bold",
+    )
+
+    filename = (
+        f"single_run_{_policy_artifact_label(source_spec)}_"
         f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
     )
     if filename_suffix is not None:
