@@ -948,10 +948,3 @@ def plot_aggregate_comparison(
     filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
-
-def main():
-    plot_aggregate_trajectory_stats(Agent("q_learning"), "full_one_way", observable=False, show=False)
-    plot_single_run_stats(Agent("q_learning"), "full_one_way", observable=False, save=True, show=False)
-
-if __name__ == "__main__":
-    main()
