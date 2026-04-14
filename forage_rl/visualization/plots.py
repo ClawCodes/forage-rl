@@ -14,8 +14,8 @@ from forage_rl.analysis.patch_timing import (
     extract_decision_rows,
     infer_hidden_states_for_trajectory,
     leave_probability_curve,
-    mvt_optimal_dwell_by_state,
-    mvt_residency_deviation_by_patch,
+    oracle_optimal_dwell_by_state,
+    oracle_residency_deviation_by_patch,
     normalized_curve_auc,
     observation_group_patch_labels,
 )
@@ -33,11 +33,15 @@ from forage_rl.utils import (
     load_run_dataset,
 )
 
-PolicyInput = Agent | PolicySpec
+PolicyInput = Agent | PolicySpec | str
 EvaluatorInput = Agent | EvaluatorSpec
 
 
 def _normalize_policy(policy: PolicyInput) -> PolicySpec:
+    if isinstance(policy, str):
+        raise ValueError(
+            "String policy labels are supported only for recovery plotting helpers."
+        )
     if isinstance(policy, PolicySpec):
         return policy
     return PolicySpec(agent=policy)
@@ -50,10 +54,14 @@ def _normalize_evaluator(evaluator: EvaluatorInput) -> EvaluatorSpec:
 
 
 def _policy_label(policy: PolicyInput) -> str:
+    if isinstance(policy, str):
+        return policy
     return _normalize_policy(policy).display_label
 
 
 def _policy_artifact_label(policy: PolicyInput) -> str:
+    if isinstance(policy, str):
+        return policy.lower().replace(" ", "_")
     return _normalize_policy(policy).artifact_label
 
 
@@ -129,6 +137,17 @@ def _figure_suffix(maze_name: str, horizon: int | None) -> str:
 
 def _figure_title(base: str, benchmark_label: str | None = None) -> str:
     return f"{benchmark_label}: {base}" if benchmark_label else base
+
+
+def _recovery_title_context(
+    maze_name: str,
+    observable: bool,
+    condition_label: str | None,
+) -> str:
+    parts = [maze_name, _obs_tag(observable)]
+    if condition_label:
+        parts.append(condition_label)
+    return ", ".join(parts)
 
 
 def _finalize_figure(
@@ -659,7 +678,7 @@ def plot_patch_timing_summary(
         horizon=resolved_horizon,
     )
     leave_action = maze.action_labels.index("leave")
-    optimal_dwell_by_state = mvt_optimal_dwell_by_state(
+    optimal_dwell_by_state = oracle_optimal_dwell_by_state(
         maze_name=maze_name,
         horizon=resolved_horizon,
     )
@@ -686,7 +705,7 @@ def plot_patch_timing_summary(
             maze=maze,
             observable=observable,
         )
-        run_deviations = mvt_residency_deviation_by_patch(
+        run_deviations = oracle_residency_deviation_by_patch(
             rows,
             leave_action=leave_action,
             optimal_dwell_by_state=optimal_dwell_by_state,
@@ -736,8 +755,8 @@ def plot_patch_timing_summary(
             va="center",
             transform=ax_deviation.transAxes,
         )
-    ax_deviation.set_ylabel("Actual Dwell - MVT-Optimal Dwell", fontsize=12)
-    ax_deviation.set_title("Patch Residency Deviation", fontsize=14)
+    ax_deviation.set_ylabel("Actual Dwell - Oracle Optimal Dwell", fontsize=12)
+    ax_deviation.set_title("Patch Residency Deviation vs Oracle", fontsize=14)
 
     color_by_patch = {
         "Upper Patch": "#3498db",
@@ -781,9 +800,9 @@ def plot_patch_timing_summary(
         ax_curve.legend(fontsize=10)
     ax_curve.axvline(0.0, color="gray", linestyle="--", alpha=0.8)
     ax_curve.set_ylim(0.0, 1.0)
-    ax_curve.set_xlabel("Dwell Deviation From MVT-Optimal", fontsize=12)
+    ax_curve.set_xlabel("Dwell Deviation From Oracle Optimal", fontsize=12)
     ax_curve.set_ylabel("Leave Probability", fontsize=12)
-    ax_curve.set_title("Leave Probability vs MVT Deviation", fontsize=14)
+    ax_curve.set_title("Leave Probability vs Oracle Deviation", fontsize=14)
 
     fig.suptitle(
         _figure_title(
@@ -857,6 +876,193 @@ def plot_aggregate_comparison(
         f"agg_compare_{_policy_artifact_label(source)}_to_{comparisons}_"
         f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
     )
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def _policy_series_items(
+    data_by_policy: dict[PolicyInput, list[np.ndarray] | list[float]],
+) -> list[tuple[str, list[np.ndarray] | list[float]]]:
+    items = [(_policy_label(policy), values) for policy, values in data_by_policy.items()]
+    return sorted(items, key=lambda item: item[0])
+
+
+def plot_recovery_curve_comparison(
+    curves_by_policy: dict[PolicyInput, list[np.ndarray]],
+    *,
+    maze_name: str = "simple",
+    observable: bool = True,
+    perturbation_label: str = "decay_swap",
+    condition_label: str | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+):
+    """Plot mean absolute recovery curves with run-level variability."""
+    fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
+
+    plotted_any = False
+    for label, curves in _policy_series_items(curves_by_policy):
+        if not curves:
+            continue
+        summary = aggregate_curves(curves)
+        x = summary.x + 1
+        ax.plot(x, summary.mean, linewidth=2, label=label)
+        ax.fill_between(
+            x,
+            summary.mean - summary.std,
+            summary.mean + summary.std,
+            alpha=0.2,
+        )
+        plotted_any = True
+
+    if not plotted_any:
+        ax.text(
+            0.5,
+            0.5,
+            "No recovery curves available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+    else:
+        ax.legend(fontsize=10)
+
+    ax.set_xlabel("Post-Perturbation Episode", fontsize=12)
+    ax.set_ylabel("Mean Absolute Dwell Deviation", fontsize=12)
+    ax.set_title(
+        _figure_title(
+            f"Recovery Curves ({_recovery_title_context(maze_name, observable, condition_label)})",
+            benchmark_label,
+        ),
+        fontsize=14,
+    )
+
+    filename = f"recovery_curve_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def plot_signed_recovery_curve_comparison(
+    curves_by_policy: dict[PolicyInput, list[np.ndarray]],
+    *,
+    maze_name: str = "simple",
+    observable: bool = True,
+    perturbation_label: str = "decay_swap",
+    condition_label: str | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+):
+    """Plot mean signed recovery curves to distinguish under- and over-stay."""
+    fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
+
+    plotted_any = False
+    for label, curves in _policy_series_items(curves_by_policy):
+        if not curves:
+            continue
+        summary = aggregate_curves(curves)
+        x = summary.x + 1
+        ax.plot(x, summary.mean, linewidth=2, label=label)
+        ax.fill_between(
+            x,
+            summary.mean - summary.std,
+            summary.mean + summary.std,
+            alpha=0.2,
+        )
+        plotted_any = True
+
+    if not plotted_any:
+        ax.text(
+            0.5,
+            0.5,
+            "No signed recovery curves available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+    else:
+        ax.legend(fontsize=10)
+
+    ax.axhline(0.0, color="gray", linestyle="--", alpha=0.8)
+    ax.set_xlabel("Post-Perturbation Episode", fontsize=12)
+    ax.set_ylabel("Mean Signed Dwell Deviation", fontsize=12)
+    ax.set_title(
+        _figure_title(
+            f"Signed Recovery Curves ({_recovery_title_context(maze_name, observable, condition_label)})",
+            benchmark_label,
+        ),
+        fontsize=14,
+    )
+
+    filename = f"signed_recovery_curve_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def plot_recovery_auc_comparison(
+    aucs_by_policy: dict[PolicyInput, list[float]],
+    *,
+    maze_name: str = "simple",
+    observable: bool = True,
+    perturbation_label: str = "decay_swap",
+    condition_label: str | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+):
+    """Plot mean recovery AUC by policy with run-level standard deviation."""
+    fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
+
+    labels: list[str] = []
+    means: list[float] = []
+    stds: list[float] = []
+    for label, values in _policy_series_items(aucs_by_policy):
+        arr = np.asarray(values, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        if arr.size == 0:
+            continue
+        labels.append(label)
+        means.append(float(np.mean(arr)))
+        stds.append(float(np.std(arr, ddof=0)))
+
+    if not labels:
+        ax.text(
+            0.5,
+            0.5,
+            "No recovery AUC values available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+    else:
+        positions = np.arange(len(labels))
+        ax.bar(positions, means, yerr=stds, alpha=0.7, color="#2c7fb8", capsize=4)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels, rotation=20, ha="right")
+
+    ax.set_ylabel("Recovery AUC", fontsize=12)
+    ax.set_title(
+        _figure_title(
+            f"Recovery AUC Comparison ({_recovery_title_context(maze_name, observable, condition_label)})",
+            benchmark_label,
+        ),
+        fontsize=14,
+    )
+
+    filename = f"recovery_auc_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
     if filename_suffix is not None:
         filename = f"{filename}_{filename_suffix}"
     filepath = FIGURES_DIR / f"{filename}.png"
