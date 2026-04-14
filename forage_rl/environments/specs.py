@@ -39,14 +39,11 @@ class StateSpec(BaseModel):
             if len(self.reward_probs) == 0:
                 raise ValueError("reward_probs must contain at least one probability.")
             invalid = [
-                value
-                for value in self.reward_probs
-                if value < 0.0 or value > 1.0
+                value for value in self.reward_probs if value < 0.0 or value > 1.0
             ]
             if invalid:
                 raise ValueError(
-                    "reward_probs values must lie in [0, 1], "
-                    f"got {invalid}."
+                    f"reward_probs values must lie in [0, 1], got {invalid}."
                 )
             if self.initial_reward_prob != 1.0:
                 raise ValueError(

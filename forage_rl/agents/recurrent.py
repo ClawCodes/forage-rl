@@ -254,6 +254,11 @@ class RecurrentQAgent(NeuralAgentBase):
             device=self.torch_device,
         )
         next_features = self.torch.zeros_like(features)
+        next_state_ids = self.torch.zeros(
+            (batch_size, max_length),
+            dtype=self.torch.long,
+            device=self.torch_device,
+        )
         actions = self.torch.zeros(
             (batch_size, max_length),
             dtype=self.torch.long,
@@ -292,6 +297,7 @@ class RecurrentQAgent(NeuralAgentBase):
                     prev_action=int(item["action"]),
                     prev_reward=float(item["reward"]),
                 )
+                next_state_ids[row_index, step_index] = int(item["next_state"])
                 actions[row_index, step_index] = int(item["action"])
                 rewards[row_index, step_index] = float(item["reward"])
                 dones[row_index, step_index] = float(item["done"])
@@ -303,13 +309,22 @@ class RecurrentQAgent(NeuralAgentBase):
             return (
                 features,
                 next_features,
+                next_state_ids,
                 actions,
                 rewards,
                 dones,
                 valid_mask,
                 loss_mask,
             )
-        return features, next_features, actions, rewards, dones, loss_mask
+        return (
+            features,
+            next_features,
+            next_state_ids,
+            actions,
+            rewards,
+            dones,
+            loss_mask,
+        )
 
     def _train_from_replay(self) -> None:
         if self.training_steps < self.batch_size:
@@ -322,6 +337,7 @@ class RecurrentQAgent(NeuralAgentBase):
         (
             features,
             next_features,
+            next_state_ids,
             actions,
             rewards,
             dones,
@@ -333,7 +349,10 @@ class RecurrentQAgent(NeuralAgentBase):
 
         with self.torch.no_grad():
             target_q_values, _ = self.target_network(next_features)
-            next_max = target_q_values.max(dim=2).values
+            next_max = self.masked_max_q_values(
+                target_q_values,
+                next_state_ids.detach().cpu().numpy(),
+            )
             targets = rewards + self.gamma * (1.0 - dones) * next_max
 
         if float(loss_mask.sum().item()) <= 0.0:
@@ -362,7 +381,7 @@ class RecurrentQAgent(NeuralAgentBase):
             prev_reward=prev_reward,
         )
         q_values, self.hidden = self.q_values_for_feature(feature, self.hidden)
-        action, _ = self.action_from_q_values(q_values)
+        action, _ = self.action_from_q_values(q_values, state)
         return action
 
     def simulate(self, trajectory: Trajectory) -> list[float]:
@@ -385,7 +404,10 @@ class RecurrentQAgent(NeuralAgentBase):
                 prev_reward=context["prev_reward"],
             )
             q_values, self.hidden = self.q_values_for_feature(feature, self.hidden)
-            action_probs = self.boltzmann_action_probs(q_values.detach().cpu().numpy())
+            action_probs = self.action_probabilities_for_state(
+                q_values,
+                transition.state,
+            )
             log_likelihoods.append(float(np.log(action_probs[transition.action])))
 
             next_time_spent = (

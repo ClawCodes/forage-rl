@@ -96,9 +96,7 @@ def resolve_execution_strategy(
         mp_context = mp.get_context("spawn")
         if resolved_device in {"cuda", "mps"} and worker_count > 1:
             worker_count = 1
-            worker_note = (
-                f"Clamped neural workload to one worker on {resolved_device}."
-            )
+            worker_note = f"Clamped neural workload to one worker on {resolved_device}."
 
     return ExecutionStrategy(
         worker_count=worker_count,

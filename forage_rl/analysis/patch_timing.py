@@ -128,7 +128,8 @@ def infer_hidden_states_for_trajectory(
         return [int(transition.state) for transition in transitions]
 
     state_to_observation_group = {
-        state_spec.id: state_spec.observation_group for state_spec in maze.maze_spec.states
+        state_spec.id: state_spec.observation_group
+        for state_spec in maze.maze_spec.states
     }
     leave_action = maze.action_labels.index("leave")
     inferred_states = [maze.initial_state] * len(transitions)
