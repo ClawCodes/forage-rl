@@ -111,7 +111,9 @@ def train_pretrained_agents(
         metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
         if verbose:
-            print(f"Saved {canonical_agent(agent_type).value} checkpoint to {ckpt_path}")
+            print(
+                f"Saved {canonical_agent(agent_type).value} checkpoint to {ckpt_path}"
+            )
 
 
 def main() -> None:

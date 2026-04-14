@@ -26,7 +26,9 @@ class NeuralAgentBase(BaseAgent):
     """Shared PyTorch-backed logic for neural agents."""
 
     agent_name: Agent
-    feature_schema_components_by_context_mode: dict[NeuralContextMode, tuple[str, ...]] = {
+    feature_schema_components_by_context_mode: dict[
+        NeuralContextMode, tuple[str, ...]
+    ] = {
         "observation_only": ("observation_one_hot",),
         "prev_reward": ("observation_one_hot", "prev_reward"),
         "prev_reward_time": (
@@ -127,6 +129,10 @@ class NeuralAgentBase(BaseAgent):
         self.context_mode = validate_context_mode(context_mode)
         self.device = resolve_device(device)
         self.obs_dim = int(maze.observation_space.n)  # type: ignore[attr-defined]
+        self._valid_actions_by_state = tuple(
+            tuple(self.maze.valid_actions(state_idx))
+            for state_idx in range(self.obs_dim)
+        )
         self.feature_schema_version = DefaultParams.NEURAL_FEATURE_SCHEMA_VERSION
         self.feature_schema_components = self._feature_components_for_context_mode(
             self.context_mode
@@ -156,7 +162,11 @@ class NeuralAgentBase(BaseAgent):
 
         effective_path = checkpoint_path_override or checkpoint_path
         if self.init_mode == "pretrained":
-            resolved_path = self._default_checkpoint_path() if effective_path is None else Path(effective_path)
+            resolved_path = (
+                self._default_checkpoint_path()
+                if effective_path is None
+                else Path(effective_path)
+            )
             self._validate_checkpoint_horizon_metadata(
                 resolved_path,
                 requires_metadata=effective_path is None,
@@ -255,10 +265,7 @@ class NeuralAgentBase(BaseAgent):
         if "normalized_time_spent" in self.feature_schema_components:
             feature_parts.append(
                 np.array(
-                    [
-                        float(min(time_spent, self.maze.horizon - 1))
-                        / float(horizon)
-                    ],
+                    [float(min(time_spent, self.maze.horizon - 1)) / float(horizon)],
                     dtype=np.float32,
                 )
             )
@@ -319,15 +326,46 @@ class NeuralAgentBase(BaseAgent):
         with self.torch.no_grad():
             return self._predict_q_values(self.q_network, feature, hidden)
 
+    def valid_actions(self, state: int) -> tuple[int, ...]:
+        """Return cached valid global actions for an encoded state/observation."""
+        return self._valid_actions_by_state[int(state)]
+
+    def action_probabilities_for_state(self, q_values, state: int) -> np.ndarray:
+        """Return Boltzmann action probabilities with invalid actions masked out."""
+        q_numpy = q_values.detach().cpu().numpy()
+        valid_actions = np.asarray(self.valid_actions(state), dtype=int)
+        valid_probs = self.boltzmann_action_probs(q_numpy[valid_actions])
+        action_probs = np.zeros_like(q_numpy, dtype=float)
+        action_probs[valid_actions] = valid_probs
+        return action_probs
+
+    def masked_max_q_values(self, q_values, states) -> Any:
+        """Return max-Q values after excluding actions invalid in each state."""
+        masked_q_values = q_values.clone()
+        flat_q_values = masked_q_values.reshape(-1, masked_q_values.shape[-1])
+        flat_states = np.asarray(states, dtype=int).reshape(-1)
+        invalid_fill_value = self.torch.finfo(masked_q_values.dtype).min
+
+        for row_index, state_idx in enumerate(flat_states):
+            valid_actions = self.valid_actions(int(state_idx))
+            valid_mask = self.torch.zeros(
+                flat_q_values.shape[-1],
+                dtype=self.torch.bool,
+                device=flat_q_values.device,
+            )
+            valid_mask[list(valid_actions)] = True
+            flat_q_values[row_index, ~valid_mask] = invalid_fill_value
+
+        return masked_q_values.max(dim=-1).values
+
     @abstractmethod
     def _predict_q_values(self, model, feature, hidden: Any = None):
         """Return q-values (and optional hidden state) for a single feature vector."""
 
-    def action_from_q_values(self, q_values) -> tuple[int, float]:
+    def action_from_q_values(self, q_values, state: int) -> tuple[int, float]:
         """Sample an action and return its log-probability under Boltzmann policy."""
-        q_numpy = q_values.detach().cpu().numpy()
-        action_probs = self.boltzmann_action_probs(q_numpy)
-        action = int(self.rng.choice(len(q_numpy), p=action_probs))
+        action_probs = self.action_probabilities_for_state(q_values, state)
+        action = int(self.rng.choice(len(action_probs), p=action_probs))
         return action, float(np.log(action_probs[action]))
 
     def load_checkpoint(self, path: Path) -> None:

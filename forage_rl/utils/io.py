@@ -45,10 +45,10 @@ def _required_horizon(metadata: dict[str, object], *, artifact_label: str) -> in
         )
     horizon = int(metadata["horizon"])
     if horizon <= 0:
-        raise ValueError(
-            f"{artifact_label} has invalid horizon metadata {horizon!r}."
-        )
+        raise ValueError(f"{artifact_label} has invalid horizon metadata {horizon!r}.")
     return horizon
+
+
 def _run_dataset_load_paths(
     agent: Agent,
     run_id: int,
@@ -100,6 +100,8 @@ def _transition_class(name: str) -> type[Transition]:
     if name == TimedTransition.__name__:
         return TimedTransition
     raise ValueError(f"Unsupported transition type {name!r}.")
+
+
 def _checkpoint_load_paths(
     agent: Agent,
     maze_name: str,
@@ -126,13 +128,15 @@ def checkpoint_path(
 ) -> Path:
     """Return the canonical checkpoint path for a pretrained neural agent."""
     return CHECKPOINTS_DIR / (
-        f"{checkpoint_label(
-            agent,
-            maze_name,
-            observable,
-            context_mode=context_mode,
-            horizon=horizon,
-        )}.pt"
+        f"{
+            checkpoint_label(
+                agent,
+                maze_name,
+                observable,
+                context_mode=context_mode,
+                horizon=horizon,
+            )
+        }.pt"
     )
 
 
@@ -145,13 +149,15 @@ def checkpoint_metadata_path(
 ) -> Path:
     """Return the canonical checkpoint metadata path."""
     return CHECKPOINTS_DIR / (
-        f"{checkpoint_label(
-            agent,
-            maze_name,
-            observable,
-            context_mode=context_mode,
-            horizon=horizon,
-        )}.json"
+        f"{
+            checkpoint_label(
+                agent,
+                maze_name,
+                observable,
+                context_mode=context_mode,
+                horizon=horizon,
+            )
+        }.json"
     )
 
 
@@ -172,6 +178,8 @@ def resolve_checkpoint_load_path(
             horizon=horizon,
         )
     )
+
+
 def save_run_dataset(
     run_dataset: RunDataset,
     agent: Agent,
@@ -393,14 +401,18 @@ def list_run_dataset_files(
         agent_part = "*"
         return sorted(
             path
-            for path in TRAJECTORIES_DIR.glob(f"{prefix}_{agent_part}_run_dataset_*.npz")
+            for path in TRAJECTORIES_DIR.glob(
+                f"{prefix}_{agent_part}_run_dataset_*.npz"
+            )
             if (not exact_prefix)
             or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
         )
 
     paths: set[Path] = set()
     for candidate in load_candidate_agents(agent):
-        agent_part = f"{candidate.value}{neural_context_suffix(candidate, context_mode)}"
+        agent_part = (
+            f"{candidate.value}{neural_context_suffix(candidate, context_mode)}"
+        )
         pattern = f"{prefix}_{agent_part}_run_dataset_*.npz"
         paths.update(
             path
@@ -422,13 +434,13 @@ def list_run_dataset_run_ids(
     return sorted(
         {
             extract_run_id(filepath)
-        for filepath in list_run_dataset_files(
-            agent,
-            maze_name,
-            observable,
-            context_mode=context_mode,
-            horizon=horizon,
-        )
+            for filepath in list_run_dataset_files(
+                agent,
+                maze_name,
+                observable,
+                context_mode=context_mode,
+                horizon=horizon,
+            )
         }
     )
 

@@ -51,7 +51,9 @@ class ForagingReward:
             assert self.decay is not None
             reward_prob = self.initial_reward_prob * np.exp(-self.decay * self.counter)
         else:
-            reward_prob = self.reward_probs[min(self.counter, len(self.reward_probs) - 1)]
+            reward_prob = self.reward_probs[
+                min(self.counter, len(self.reward_probs) - 1)
+            ]
         self.counter += 1
         return 1.0 if self.rng.random() < reward_prob else 0.0
 
@@ -109,6 +111,7 @@ class Maze(gym.Env):
         self._state_specs_by_id = {
             state_spec.id: state_spec for state_spec in maze_spec.states
         }
+        self._stay_action_idx = self.action_labels.index("stay")
 
         # Precomputed transition tables
         self._transitions_by_state_action = maze_spec.transition_map()
@@ -213,6 +216,38 @@ class Maze(gym.Env):
         self._validate_action(action_idx)
         return self.action_labels[action_idx]
 
+    def valid_actions(self, state_idx: int) -> list[int]:
+        """Return the globally indexed actions available from a state."""
+        if self.observable:
+            return self._valid_actions_observable(state_idx)
+        else:
+            return self._valid_actions_pomdp(state_idx)
+
+    def _valid_actions_observable(self, state_idx: int) -> list[int]:
+        """Return the globally indexed actions available from a state."""
+        self._validate_state(state_idx)
+        return [
+            action_idx
+            for action_idx in range(self.num_actions)
+            if (state_idx, action_idx) in self._transitions_by_state_action
+        ]
+
+    def _valid_actions_pomdp(self, state_idx: int) -> list[int]:
+        """Return the actions that are legal for an observation group."""
+        self._validate_observation(state_idx)
+        concrete_states = self._observation_group_to_states[state_idx]
+        reference_actions = self._valid_actions_observable(concrete_states[0])
+        for concrete_state in concrete_states[1:]:
+            concrete_actions = self._valid_actions_observable(concrete_state)
+            if concrete_actions != reference_actions:
+                raise ValueError(
+                    "Observation-group action availability is ill-defined because "
+                    f"hidden states in observation group {state_idx} do not share "
+                    "the same valid actions."
+                )
+        return list(reference_actions)
+
+
     def transition_distribution(
         self, state_idx: int, action_idx: int
     ) -> list[tuple[int, float]]:
@@ -306,13 +341,16 @@ class Maze(gym.Env):
                 f"state={state_idx}, action={action_idx}, next_state={next_state_idx}"
             ) from exc
 
-    def _get_reward(self, next_state_idx: int) -> float:
-        """Return reward for a transition and reset depletion after patch switches."""
-        if self.state == next_state_idx:
-            return self.reward_models[self.state].sample_reward()
+    def _get_reward(self, prev_state_idx: int, action_idx: int, next_state_idx: int) -> float:
+        """Return reward for a transition with explicit blocked-leave semantics."""
+        if prev_state_idx != next_state_idx:
+            for reward_model in self.reward_models:
+                reward_model.reset()
+            return 0.0
 
-        for reward_model in self.reward_models:
-            reward_model.reset()
+        if action_idx == self._stay_action_idx:
+            return self.reward_models[prev_state_idx].sample_reward()
+
         return 0.0
 
     def expected_stay_reward(self, state_idx: int, time_spent: int) -> float:
@@ -368,7 +406,8 @@ class Maze(gym.Env):
         prev_state = self.state
         next_state = self._sample_next_state(prev_state, action)
         duration = self.transition_duration(prev_state, action, next_state)
-        reward = self._get_reward(next_state)
+        reward = self._get_reward(prev_state, action, next_state)
+        blocked_transition = prev_state == next_state and action != self._stay_action_idx
 
         self.state = next_state
         self.time += duration

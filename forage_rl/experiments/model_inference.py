@@ -86,7 +86,9 @@ def _parse_evaluators(
             raise ValueError(
                 f"Pretrained evaluators are only supported for neural agents, got {agent.value}."
             )
-        context_mode = neural_context_mode if is_neural_agent(agent) else "legacy_context"
+        context_mode = (
+            neural_context_mode if is_neural_agent(agent) else "legacy_context"
+        )
         evaluators.append(
             EvaluatorSpec(agent=agent, mode=mode, context_mode=context_mode)
         )
@@ -152,10 +154,7 @@ def evaluate_run_dataset(
         for evaluator, agent in evaluator_agents.items():
             results[evaluator].append(np.array(agent.simulate(trajectory)))
 
-    return {
-        evaluator: np.concatenate(chunks)
-        for evaluator, chunks in results.items()
-    }
+    return {evaluator: np.concatenate(chunks) for evaluator, chunks in results.items()}
 
 
 def _select_run_ids(

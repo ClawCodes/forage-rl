@@ -243,6 +243,13 @@ class TestMazeStep:
         with pytest.raises(ValueError, match="action 0 is not valid for state 1"):
             maze.transition_distribution(1, 0)
 
+    def test_valid_actions_reflect_one_way_corridors(self):
+        maze = Maze.from_spec("full_one_way", seed=42)
+
+        assert maze.valid_actions(0) == [0, 1]
+        assert maze.valid_actions(6) == [1]
+        assert maze.valid_actions(7) == [1]
+
     def test_one_way_maze_corridor_leave_is_forced(self):
         maze = Maze.from_spec("simple_one_way", seed=42)
         maze.reset()

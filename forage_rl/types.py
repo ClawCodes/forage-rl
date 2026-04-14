@@ -97,7 +97,9 @@ class RunDataset(BaseModel, Generic[T]):
         first_cls = self.trajectories[0].transition_cls()
         for trajectory in self.trajectories[1:]:
             if trajectory.transition_cls() is not first_cls:
-                raise ValueError("RunDataset trajectories must share one transition type.")
+                raise ValueError(
+                    "RunDataset trajectories must share one transition type."
+                )
         return self
 
     def __iter__(self) -> Iterator[Trajectory[T]]:
