@@ -74,7 +74,7 @@ def resolve_worker_count(task_count: int, workers: int | None = None) -> int:
         return 0
 
     if workers is None:
-        return min(task_count, os.cpu_count() or 1, 8)
+        return min(task_count, os.cpu_count() or 1)
 
     return min(task_count, workers)
 
