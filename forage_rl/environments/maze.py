@@ -36,12 +36,12 @@ class ForagingReward:
         self.decay = decay
         self.initial_reward_prob = float(initial_reward_prob)
         self.reward_probs = None if reward_probs is None else list(reward_probs)
-        self.counter = 0
+        self.counter = 1
         self.rng = rng
 
     def reset(self, rng: Optional[np.random.Generator] = None) -> None:
         """Reset the depletion counter when leaving a patch."""
-        self.counter = 0
+        self.counter = 1
         if rng is not None:
             self.rng = rng
 
@@ -393,6 +393,11 @@ class Maze(gym.Env):
         info = {"prev_state": prev_state, "action": action, "true_state": self.state}
 
         observation = self.state if self.observable else self._observe()
+
+        if self.maze_spec.perturbation is not None:
+            if self.time == self.maze_spec.perturbation.perturbation_time:
+                self._update_from_maze_spec(self.maze_spec.perturbed())
+
         return observation, reward, False, truncated, info
 
     # Backward compatible interface
