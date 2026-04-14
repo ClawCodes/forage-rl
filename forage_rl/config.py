@@ -32,7 +32,7 @@ class DefaultParams:
     # Training parameters
     NUM_EPISODES = 200
     NUM_TRAINING_RUNS = 100  # Number of trajectory files to generate
-    NUM_TRAINING_EPISODES = 100  # Episodes per generated run dataset
+    NUM_TRAINING_EPISODES = 1  # Episodes per generated run dataset
 
     # Environment parameters
     HORIZON = 100  # Maximum timesteps per episode

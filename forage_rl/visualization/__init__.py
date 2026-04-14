@@ -8,6 +8,7 @@ from .plots import (
     plot_recovery_auc_comparison,
     plot_recovery_curve_comparison,
     plot_signed_recovery_curve_comparison,
+    plot_single_run_stats,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "plot_recovery_auc_comparison",
     "plot_recovery_curve_comparison",
     "plot_signed_recovery_curve_comparison",
+    "plot_single_run_stats",
 ]
