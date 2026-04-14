@@ -7,7 +7,7 @@ observation_labels = ["Upper Patch", "Lower Patch", "Corridor A1", "Corridor A2.
 
 [states.0]
 label = "Upper Patch A"
-decay = 1.0
+decay = 0.1
 observation_group = 0
 [states.0.transitions]
 stay = [[0, 1.0]]
@@ -16,7 +16,7 @@ leave2 = [[7, 1.0]]
 
 [states.1]
 label = "Upper Patch B"
-decay = 2.0
+decay = 0.3
 observation_group = 0
 [states.1.transitions]
 stay = [[1, 1.0]]
@@ -25,7 +25,7 @@ leave2 = [[7, 1.0]]
 
 [states.2]
 label = "Upper Patch C"
-decay = 1.0
+decay = 0.2
 observation_group = 0
 [states.2.transitions]
 stay = [[2, 1.0]]
@@ -34,7 +34,7 @@ leave2 = [[7, 1.0]]
 
 [states.3]
 label = "Lower Patch A"
-decay = 1.0
+decay = 0.2
 observation_group = 1
 [states.3.transitions]
 stay = [[3, 1.0]]
@@ -43,7 +43,7 @@ leave2 = [[10, 1.0]]
 
 [states.4]
 label = "Lower Patch B"
-decay = 2.0
+decay = 0.3
 observation_group = 1
 [states.4.transitions]
 stay = [[4, 1.0]]
@@ -52,7 +52,7 @@ leave2 = [[10, 1.0]]
 
 [states.5]
 label = "Lower Patch C"
-decay = 2.0
+decay = 0.4
 observation_group = 1
 [states.5.transitions]
 stay = [[5, 1.0]]
