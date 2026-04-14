@@ -1,4 +1,21 @@
-"""Shared patch-timing analysis helpers for trajectory summaries."""
+"""Shared patch-timing analysis helpers for trajectory summaries.
+
+This module remains focused on stationary oracle patch-timing diagnostics,
+hidden-state inference, and generic leave-event extraction. External
+perturbation recovery analysis lives in dedicated modules under
+``forage_rl.analysis``.
+
+Terminology used in this module:
+
+- ``time_spent`` is zero-based consecutive time in the current patch/state.
+  ``time_spent == 0`` means "about to make the first stay/leave decision after
+  arriving in the patch".
+- ``dwell`` is one-based patch residency length. A leave decision taken at
+  ``time_spent == 4`` corresponds to ``dwell == 5``.
+- ``oracle optimal dwell`` is the earliest leave threshold implied by the
+  optimal fully observable MDP policy. This is a dynamic-programming benchmark,
+  not a separate closed-form Marginal Value Theorem calculation.
+"""
 
 from __future__ import annotations
 
@@ -61,12 +78,23 @@ def observation_group_state_ids(maze: Maze) -> dict[int, tuple[int, ...]]:
     }
 
 
-def mvt_optimal_dwell_by_state(
+def oracle_optimal_dwell_by_state(
     *,
     maze_name: str,
     horizon: int,
 ) -> dict[int, int]:
-    """Return earliest optimal leave dwell by true state from the full MDP policy."""
+    """Return the first oracle-optimal leave dwell for each true state.
+
+    The underlying policy is indexed by ``policy[state, time_spent]`` where
+    ``time_spent`` is zero-based. This helper converts the earliest
+    ``time_spent`` at which the optimal policy chooses ``leave`` into a
+    one-based dwell length:
+
+    - first leave at ``time_spent == 0`` -> dwell ``1``
+    - first leave at ``time_spent == 4`` -> dwell ``5``
+
+    This helper provides a fully observed oracle benchmark for patch timing.
+    """
     maze = Maze(load_builtin_maze_spec(maze_name), seed=0, horizon=horizon)
     _, policy = ValueIterationSolver(maze).solve(verbose=False)
     leave_action = maze.action_labels.index("leave")
@@ -287,13 +315,21 @@ def leave_probability_curve(
     return probs
 
 
-def mvt_residency_deviation_by_patch(
+def oracle_residency_deviation_by_patch(
     rows: list[DecisionRow],
     *,
     leave_action: int,
     optimal_dwell_by_state: dict[int, int],
 ) -> dict[str, list[int]]:
-    """Return signed leave-dwell deviations from the MVT-optimal dwell."""
+    """Return signed deviations from the oracle leave-dwell threshold.
+
+    Each value is:
+
+    ``actual_leave_dwell - optimal_leave_dwell_for_state``
+
+    Negative values mean the policy left earlier than the benchmark threshold;
+    positive values mean it stayed longer.
+    """
     deviations: dict[str, list[int]] = {"Upper Patch": [], "Lower Patch": []}
     for row in rows:
         if row.action != leave_action:
