@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from forage_rl import TimedTransition, Trajectory
+from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.successor_base import BaseSRAgent
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
@@ -36,8 +36,9 @@ class SRDynaAgent(BaseSRAgent):
         alpha_w: float = DefaultParams.ALPHA_W,
         beta: float = DefaultParams.BETA,
         k_replay: int = DefaultParams.K_REPLAY,
+        seed: int | None = None,
     ):
-        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta)
+        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta, seed)
         self.k_replay = k_replay
 
         self.sa_to_flat, self.flat_to_sa, n_sa = self._build_sa_index()
@@ -111,15 +112,17 @@ class SRDynaAgent(BaseSRAgent):
             for t in range(self.maze.horizon):
                 self.q_table.set(state, a, q_val, t)
 
-    def train(self, verbose: bool = True) -> Trajectory:
-        """Train the agent and return the collected trajectory."""
-        transitions = []
+    def train(self, verbose: bool = True) -> RunDataset:
+        """Train the agent and return one trajectory per episode."""
+        trajectories: list[Trajectory[TimedTransition]] = []
 
         for episode in range(self.num_episodes):
             state, _ = self.maze.reset()
             time_spent = 0
             done = False
             prev_sa_flat: int | None = None
+
+            episode_transitions: list[TimedTransition] = []
 
             while not done:
                 local_idx = self.choose_action_boltzmann(self.compute_q_sa(state))
@@ -132,7 +135,7 @@ class SRDynaAgent(BaseSRAgent):
 
                 transition, done = self.maze.step_transition(action)
                 timed_t = TimedTransition.from_transition_time(transition, time_spent)
-                transitions.append(timed_t)
+                episode_transitions.append(timed_t)
 
                 self._update_w_sa(sa_flat, timed_t.reward)
 
@@ -146,6 +149,8 @@ class SRDynaAgent(BaseSRAgent):
                 time_spent = time_spent + 1 if state == timed_t.next_state else 0
                 state = timed_t.next_state
 
+            trajectories.append(Trajectory(transitions=episode_transitions))
+
             if verbose and episode % 50 == 0:
                 print(f"Episode {episode}")
 
@@ -153,7 +158,7 @@ class SRDynaAgent(BaseSRAgent):
             print("Training completed.")
             self.print_policy()
 
-        return Trajectory(transitions=transitions)
+        return RunDataset(trajectories=trajectories)
 
     def simulate(self, trajectory: Trajectory) -> list[float]:
         """Return per-transition log-likelihoods and update internal state."""

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from forage_rl import TimedTransition, Trajectory
+from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.successor_base import BaseSRAgent
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
@@ -33,8 +33,9 @@ class SRMBAgent(BaseSRAgent):
         alpha_w: float = DefaultParams.ALPHA_W,
         alpha_pi: float = DefaultParams.ALPHA_PI,
         beta: float = DefaultParams.BETA,
+        seed: int | None = None,
     ):
-        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta)
+        super().__init__(maze, num_episodes, gamma, alpha_sr, alpha_w, beta, seed)
         self.alpha_pi = alpha_pi
 
         n = maze.observation_space.n  # type: ignore
@@ -87,14 +88,16 @@ class SRMBAgent(BaseSRAgent):
         self.update_w(t.state, t.reward)
         self.update_q_cache()
 
-    def train(self, verbose: bool = True) -> Trajectory:
-        """Train the agent and return the collected trajectory."""
-        transitions = []
+    def train(self, verbose: bool = True) -> RunDataset:
+        """Train the agent and return one trajectory per episode."""
+        trajectories: list[Trajectory[TimedTransition]] = []
 
         for episode in range(self.num_episodes):
             state, _ = self.maze.reset()
             time_spent = 0
             done = False
+
+            episode_transitions: list[TimedTransition] = []
 
             while not done:
                 local_idx = self.choose_action_boltzmann(
@@ -104,11 +107,13 @@ class SRMBAgent(BaseSRAgent):
                 transition, done = self.maze.step_transition(action)
 
                 timed_t = TimedTransition.from_transition_time(transition, time_spent)
-                transitions.append(timed_t)
+                episode_transitions.append(timed_t)
                 self._step_update(timed_t)
 
                 time_spent = time_spent + 1 if state == timed_t.next_state else 0
                 state = timed_t.next_state
+
+            trajectories.append(Trajectory(transitions=episode_transitions))
 
             if verbose and episode % 50 == 0:
                 print(f"Episode {episode}")
@@ -117,7 +122,7 @@ class SRMBAgent(BaseSRAgent):
             print("Training completed.")
             self.print_policy()
 
-        return Trajectory(transitions=transitions)
+        return RunDataset(trajectories=trajectories)
 
     def simulate(self, trajectory: Trajectory) -> list[float]:
         """Return per-transition log-likelihoods and update internal state."""
