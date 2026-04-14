@@ -832,7 +832,7 @@ def _draw_residency_lines(
     For each transition t, plots the fraction of the preceding `window` transitions
     spent in each state. Shows how time allocation shifts over training.
     """
-    if isinstance(maze, MazePOMDP):
+    if not maze.observable:
         n_bins = maze.num_observations
         y_labels = list(maze.maze_spec.observation_labels)
     else:
@@ -873,7 +873,7 @@ def _draw_residency_lines(
 
 def _draw_residency_scatter(ax: plt.Axes, trajectory: Trajectory, maze: Maze) -> None:
     """Draw raw residency scatter (state at each transition step) onto ax."""
-    if isinstance(maze, MazePOMDP):
+    if not maze.observable:
         obs_map = maze._state_to_observation_group
         states = [obs_map[t.state] for t in trajectory.transitions]
         n_bins = maze.num_observations
