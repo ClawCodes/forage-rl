@@ -10,6 +10,7 @@ from forage_rl import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.neural_base import NeuralAgentBase
 from forage_rl.agents.registry import Agent
 
+
 class DQNAgent(NeuralAgentBase):
     """DQN with replay, target networks, and Boltzmann action selection."""
 
@@ -24,7 +25,9 @@ class DQNAgent(NeuralAgentBase):
     ):
         super().__init__(maze, **kwargs)
         self.replay_buffer = deque(maxlen=self.replay_capacity)
-        resolved_warmup_steps = self.batch_size if warmup_steps is None else warmup_steps
+        resolved_warmup_steps = (
+            self.batch_size if warmup_steps is None else warmup_steps
+        )
         self._require_non_negative_int("warmup_steps", resolved_warmup_steps)
         self.warmup_steps = int(resolved_warmup_steps)
 
@@ -125,7 +128,10 @@ class DQNAgent(NeuralAgentBase):
 
         q_values = self.q_network(states).gather(1, actions.unsqueeze(1)).squeeze(1)
         with self.torch.no_grad():
-            next_q_values = self.target_network(next_states).max(dim=1).values
+            next_q_values = self.masked_max_q_values(
+                self.target_network(next_states),
+                [int(item["next_state"]) for item in batch],
+            )
             targets = rewards + self.gamma * (1.0 - dones) * next_q_values
 
         loss = self.loss_fn(q_values, targets).mean()
@@ -149,7 +155,7 @@ class DQNAgent(NeuralAgentBase):
             prev_reward=prev_reward,
         )
         q_values = self.q_values_for_feature(feature)
-        action, _ = self.action_from_q_values(q_values)
+        action, _ = self.action_from_q_values(q_values, state)
         return action
 
     def simulate(self, trajectory: Trajectory) -> list[float]:
@@ -170,7 +176,10 @@ class DQNAgent(NeuralAgentBase):
                 prev_reward=context["prev_reward"],
             )
             q_values = self.q_values_for_feature(feature)
-            action_probs = self.boltzmann_action_probs(q_values.detach().cpu().numpy())
+            action_probs = self.action_probabilities_for_state(
+                q_values,
+                transition.state,
+            )
             log_likelihoods.append(float(np.log(action_probs[transition.action])))
 
             next_time_spent = (

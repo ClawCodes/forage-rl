@@ -21,7 +21,12 @@ from forage_rl.analysis.patch_timing import (
 )
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments import resolve_effective_horizon
-from forage_rl.environments.maze import Maze, MazeMDP, MazePOMDP, maze_from_builtin_maze_spec
+from forage_rl.environments.maze import (
+    Maze,
+    MazeMDP,
+    MazePOMDP,
+    maze_from_builtin_maze_spec,
+)
 from forage_rl.utils import (
     list_run_dataset_run_ids,
     load_logprobs,
@@ -302,26 +307,43 @@ def _draw_model_accuracies(
     width = 0.35
     eval_colors = ["#e74c3c", "#2ecc71", "#f39c12", "#9b59b6"]
 
-    source_rates = [source_wins[evaluator.label] / len(run_ids) for evaluator in comparisons]
+    source_rates = [
+        source_wins[evaluator.label] / len(run_ids) for evaluator in comparisons
+    ]
     eval_rates = [1 - rate for rate in source_rates]
 
-    ax.bar(x - width / 2, source_rates, width, label=_policy_label(source_spec), color="#3498db")
+    ax.bar(
+        x - width / 2,
+        source_rates,
+        width,
+        label=_policy_label(source_spec),
+        color="#3498db",
+    )
     for index, (evaluator, rate) in enumerate(zip(comparisons, eval_rates)):
         ax.bar(
             x[index] + width / 2,
             rate,
             width,
-            label=evaluator.label if index == 0 or evaluator.label not in [e.label for e in comparisons[:index]] else "_nolegend_",
+            label=evaluator.label
+            if index == 0
+            or evaluator.label not in [e.label for e in comparisons[:index]]
+            else "_nolegend_",
             color=eval_colors[index % len(eval_colors)],
         )
 
     ax.set_ylim(0, 1)
     ax.set_ylabel("Win Rate", fontsize=12)
     ax.set_xlabel("Comparison", fontsize=12)
-    ax.set_title(f"Model Accuracy on '{_policy_label(source_spec)}'-Generated Trajectories", fontsize=14)
+    ax.set_title(
+        f"Model Accuracy on '{_policy_label(source_spec)}'-Generated Trajectories",
+        fontsize=14,
+    )
     ax.set_xticks(x)
     ax.set_xticklabels(
-        [f"{_policy_artifact_label(source_spec)} vs {evaluator.label}" for evaluator in comparisons],
+        [
+            f"{_policy_artifact_label(source_spec)} vs {evaluator.label}"
+            for evaluator in comparisons
+        ],
         ha="right",
     )
     ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance (0.50)")
@@ -346,25 +368,33 @@ def _draw_model_accuracies(
         )
 
 
-
-
 def _draw_mean_cumulative_reward(ax: plt.Axes, trajectories: list[Trajectory]) -> None:
-    cumsums = [np.cumsum([transition.reward for transition in trajectory.transitions]) for trajectory in trajectories]
+    cumsums = [
+        np.cumsum([transition.reward for transition in trajectory.transitions])
+        for trajectory in trajectories
+    ]
     min_len = min(len(cumsum) for cumsum in cumsums)
     arr = np.array([cumsum[:min_len] for cumsum in cumsums])
     mean = arr.mean(axis=0)
     std = arr.std(axis=0)
     x = np.arange(min_len)
     ax.plot(x, mean, linewidth=2, color="#2ecc71", label="Mean")
-    ax.fill_between(x, mean - std, mean + std, alpha=0.3, color="#2ecc71", label="±1 SD")
+    ax.fill_between(
+        x, mean - std, mean + std, alpha=0.3, color="#2ecc71", label="±1 SD"
+    )
     ax.set_xlabel("Transition", fontsize=12)
     ax.set_ylabel("Cumulative Reward", fontsize=12)
     ax.set_title(f"Mean Cumulative Reward (n={len(trajectories)})", fontsize=14)
     ax.legend(fontsize=10)
 
 
-def _draw_modal_residency(ax: plt.Axes, trajectories: list[Trajectory], maze: Maze) -> None:
-    state_sequences = [[transition.state for transition in trajectory.transitions] for trajectory in trajectories]
+def _draw_modal_residency(
+    ax: plt.Axes, trajectories: list[Trajectory], maze: Maze
+) -> None:
+    state_sequences = [
+        [transition.state for transition in trajectory.transitions]
+        for trajectory in trajectories
+    ]
     min_len = min(len(sequence) for sequence in state_sequences)
     arr = np.array([sequence[:min_len] for sequence in state_sequences])
 
@@ -391,7 +421,13 @@ def _draw_modal_residency(ax: plt.Axes, trajectories: list[Trajectory], maze: Ma
             frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.state_labels or [f"State {state}" for state in range(n_bins)]
 
-    ax.scatter(range(min_len), modal_values, s=np.array(frequencies) * 40, alpha=0.7, color="#3498db")
+    ax.scatter(
+        range(min_len),
+        modal_values,
+        s=np.array(frequencies) * 40,
+        alpha=0.7,
+        color="#3498db",
+    )
     ax.set_yticks(range(n_bins))
     ax.set_yticklabels(y_labels)
     ax.set_xlabel("Transition", fontsize=12)
@@ -408,7 +444,9 @@ def plot_mean_trajectory_stats(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
 ):
-    fig, (ax_reward, ax_residency) = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
+    fig, (ax_reward, ax_residency) = plt.subplots(
+        1, 2, figsize=(14, 5), constrained_layout=True
+    )
     _draw_mean_cumulative_reward(ax_reward, trajectories)
     _draw_modal_residency(ax_residency, trajectories, maze)
     fig.suptitle(
@@ -454,7 +492,9 @@ def plot_aggregate_trajectory_stats(
         )
     )
     if not selected_run_ids:
-        selected_run_ids = _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+        selected_run_ids = _load_policy_run_ids(
+            source_spec, maze_name, observable, horizon=horizon
+        )
 
     trajectories = [
         _flatten_run_dataset(
@@ -514,7 +554,10 @@ def plot_episode_return_comparison(
                 horizon=horizon,
             )
             episode_returns = np.array(
-                [sum(transition.reward for transition in trajectory.transitions) for trajectory in run_dataset],
+                [
+                    sum(transition.reward for transition in trajectory.transitions)
+                    for trajectory in run_dataset
+                ],
                 dtype=float,
             )
             episode_return_sequences.append(episode_returns)
@@ -529,11 +572,24 @@ def plot_episode_return_comparison(
         plotted_any = True
 
     if not plotted_any:
-        ax.text(0.5, 0.5, "No run datasets available", ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            "No run datasets available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
 
     ax.set_xlabel("Episode Within Run", fontsize=12)
     ax.set_ylabel("Episode Return", fontsize=12)
-    ax.set_title(_figure_title(f"Episode Return Comparison ({maze_name}, {_obs_tag(observable)})", benchmark_label), fontsize=14)
+    ax.set_title(
+        _figure_title(
+            f"Episode Return Comparison ({maze_name}, {_obs_tag(observable)})",
+            benchmark_label,
+        ),
+        fontsize=14,
+    )
     if plotted_any:
         ax.legend(fontsize=10)
 
@@ -607,7 +663,9 @@ def plot_patch_timing_summary(
         maze_name=maze_name,
         horizon=resolved_horizon,
     )
-    patch_order = list(maze.maze_spec.observation_labels or ["Upper Patch", "Lower Patch"])
+    patch_order = list(
+        maze.maze_spec.observation_labels or ["Upper Patch", "Lower Patch"]
+    )
     deviation_offset = resolved_horizon
     curve_width = resolved_horizon * 2 + 1
 
@@ -663,7 +721,9 @@ def plot_patch_timing_summary(
             tick_labels=patch_order,
             patch_artist=True,
         )
-        for patch, patch_artist in zip(boxplot["boxes"], ["#3498db", "#e67e22"], strict=False):
+        for patch, patch_artist in zip(
+            boxplot["boxes"], ["#3498db", "#e67e22"], strict=False
+        ):
             patch.set_facecolor(patch_artist)
             patch.set_alpha(0.45)
         ax_deviation.axhline(0.0, color="gray", linestyle="--", alpha=0.8)
@@ -759,7 +819,9 @@ def plot_aggregate_comparison(
     horizon: int | None = None,
 ):
     del benchmark_note
-    fig, (ax_bars, ax_lines) = plt.subplots(1, 2, figsize=(16, 6), constrained_layout=True)
+    fig, (ax_bars, ax_lines) = plt.subplots(
+        1, 2, figsize=(16, 6), constrained_layout=True
+    )
     _draw_model_accuracies(
         ax_bars,
         source,
@@ -788,7 +850,9 @@ def plot_aggregate_comparison(
         fontweight="bold",
     )
 
-    comparisons = "_".join([_evaluator_label(evaluator) for evaluator in compare_to]) or "none"
+    comparisons = (
+        "_".join([_evaluator_label(evaluator) for evaluator in compare_to]) or "none"
+    )
     filename = (
         f"agg_compare_{_policy_artifact_label(source)}_to_{comparisons}_"
         f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
