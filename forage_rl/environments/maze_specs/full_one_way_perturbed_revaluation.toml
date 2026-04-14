@@ -91,11 +91,11 @@ decay = 0.1
 observation_group = 1
 
 [perturbation.states.4]
-label = "Upper Patch B"
+label = "Lower Patch B"
 decay = 0.1
 observation_group = 1
 
 [perturbation.states.5]
-label = "Upper Patch C"
+label = "Lower Patch C"
 decay = 0.1
 observation_group = 1
