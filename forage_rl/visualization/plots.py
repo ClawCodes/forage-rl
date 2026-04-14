@@ -882,7 +882,6 @@ def plot_single_run_stats(
 
     fig, (ax_reward, ax_residency) = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
     _draw_cumulative_reward_single(ax_reward, trajectory)
-    # _draw_residency_scatter(ax_residency, trajectory, maze)
     _draw_residency_lines(ax_residency, trajectory, maze)
 
     fig.suptitle(
