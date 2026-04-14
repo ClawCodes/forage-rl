@@ -1,7 +1,7 @@
 """Schema models for TOML-defined maze variants."""
 
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple, Union, Sequence
+from typing import Any, Dict, List, Tuple, Union, Sequence, Optional
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -17,6 +17,7 @@ class MazeMeta(BaseModel):
     initial_state: int = 0
     action_labels: List[str] = Field(default_factory=lambda: ["stay", "leave"])
     observation_labels: List[str] = Field(default_factory=list)
+    observable: bool = Field(default=True)
 
 
 class StateSpec(BaseModel):
@@ -79,6 +80,15 @@ class TransitionDurationSpec(BaseModel):
 TransitionSpec = Union[TransitionStepSpec, TransitionDurationSpec]
 
 
+class PerturbationSpec(BaseModel):
+    perturbation_time: int
+    observable: Optional[bool] = None
+    # TODO: currently can't add/remove observation groups
+
+    states: Optional[List[StateSpec]] = None
+    transitions: Optional[List[TransitionSpec]] = None
+
+
 class MazeSpec(BaseModel):
     """Validated maze specification loaded from TOML."""
 
@@ -87,6 +97,7 @@ class MazeSpec(BaseModel):
     maze: MazeMeta
     states: List[StateSpec]
     transitions: List[TransitionSpec]
+    perturbation: Optional[PerturbationSpec] = None
 
     @property
     def num_states(self) -> int:
@@ -141,24 +152,8 @@ class MazeSpec(BaseModel):
             for key, values in mapping.items()
         }
 
-    @model_validator(mode="before")
-    @classmethod
-    def _expand_compact_format(cls, data: Any) -> Any:
-        """
-        Detect and expand the compact state-centric TOML format.
-
-        Compact format has ``states`` as a dict keyed by string state ids,
-        each containing a ``transitions`` sub-dict keyed by action name.
-        This pre-validator rewrites it into the flat internal form expected
-        by the after-validator.
-        """
-        if not isinstance(data, dict):
-            return data
-
-        states_raw = data.get("states")
-        if not isinstance(states_raw, dict):
-            return data
-
+    @staticmethod
+    def _get_action_labels(data: dict):
         # Accept 'actions' as alias for 'action_labels' in maze meta
         maze_raw = data.get("maze", {})
         if (
@@ -173,7 +168,10 @@ class MazeSpec(BaseModel):
 
         if action_labels is None:
             raise ValueError("Please specify action labels")
+        return action_labels
 
+    @staticmethod
+    def _expand_states_transitions(action_labels: dict, states_raw: dict):
         action_index = {name: idx for idx, name in enumerate(action_labels)}
 
         flat_states: List[Dict[str, Any]] = []
@@ -183,7 +181,8 @@ class MazeSpec(BaseModel):
             state_id = int(state_key)
             transitions_raw = state_body.pop("transitions", {})
 
-            flat_states.append({"id": state_id, **state_body})
+            if state_body:
+                flat_states.append({"id": state_id, **state_body})
 
             for action_name, outcomes in transitions_raw.items():
                 action_idx = action_index.get(action_name)
@@ -220,13 +219,87 @@ class MazeSpec(BaseModel):
                             f"[next_state, prob, duration], got {outcome}"
                         )
 
-        data["states"] = flat_states
-        data["transitions"] = flat_transitions
+        return flat_states, flat_transitions
+
+    @model_validator(mode="before")
+    @classmethod
+    def _expand_compact_format(cls, data: Any) -> Any:
+        """
+        Detect and expand the compact state-centric TOML format.
+
+        Compact format has ``states`` as a dict keyed by string state ids,
+        each containing a ``transitions`` sub-dict keyed by action name.
+        This pre-validator rewrites it into the flat internal form expected
+        by the after-validator.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        states_raw = data.get("states")
+        if not isinstance(states_raw, dict):
+            return data
+
+        action_labels = MazeSpec._get_action_labels(data)
+        data["states"], data["transitions"] = MazeSpec._expand_states_transitions(action_labels, states_raw)
+
+        if "perturbation" in data and "states" in data["perturbation"]:
+            data["perturbation"]["states"], data["perturbation"]["transitions"] = \
+                MazeSpec._expand_states_transitions(action_labels, data["perturbation"]["states"])
+
         return data
 
     @staticmethod
     def _is_consecutive(sequence: Sequence[int]) -> bool:
         return sorted(sequence) == list(range(len(sequence)))
+
+    def perturbed(self) -> "MazeSpec":
+        """Returns the perturbed version of this MazeSpec"""
+        if self.perturbation is None:
+            return self
+
+        perturbed_model = self.model_dump()
+
+        if self.perturbation.observable is not None:
+            perturbed_model["maze"]["observable"] = self.perturbation.observable
+
+        if self.perturbation.states is not None:
+            for state in self.perturbation.states:
+                id = state.id
+                if id < len(perturbed_model["states"]):
+                    perturbed_model["states"][id] = state
+                else:
+                    perturbed_model["states"].append(state)
+
+        # convert flat transitions to hierarchical list
+        # enables checking if actions are removed during perturbation
+        perturbed_transitions = {}
+        if self.perturbation.transitions is not None:
+            for transition in self.perturbation.transitions:
+                if transition.state not in perturbed_transitions:
+                    perturbed_transitions[transition.state] = [None for _ in range(self.num_actions)]
+                perturbed_transitions[transition.state][transition.action] = transition
+
+        # Loop through the current list of transitions.
+        # Transitions can be uniquely identified by state, action.
+        # If current_state doesn't exist in perturbed_transitions, no updates.
+        # If current_state does exist, but current_action doesn't, then we want to delete the current transition
+        # (effectively removing the option of current_action).
+        # Else, current_state and current_action exist in perturbed_transitions, so update the current transition.
+
+        # TODO: does not allow adding *new* transitions (i.e., a state/action pair that didn't originally exist)
+        transitions_copy = perturbed_model["transitions"].copy()
+        for i in range(len(transitions_copy)):
+            transition = transitions_copy[i]
+            if transition["state"] in perturbed_transitions:
+                perturbed_transition = perturbed_transitions[transition["state"]][transition["action"]]
+                transitions_copy[i] = perturbed_transition  # None if action does not exist
+
+        perturbed_model["transitions"] = [t for t in transitions_copy if t is not None]
+
+        # must be deleted to prevent infinite recursion of model validation
+        del perturbed_model["perturbation"]
+
+        return MazeSpec.model_validate(perturbed_model)
 
     @model_validator(mode="after")
     def validate_spec(self) -> "MazeSpec":
@@ -356,5 +429,8 @@ class MazeSpec(BaseModel):
                     f"state={state_idx}, action={action_idx} "
                     f"must sum to 1.0, got {total_prob:.6f}"
                 )
+
+        # preconstruct perturbed for implicit validation
+        self.perturbed()
 
         return self

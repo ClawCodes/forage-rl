@@ -10,7 +10,6 @@ from forage_rl.agents.registry import Agent, NEURAL_CONTEXT_MODES, NeuralContext
 from forage_rl.config import DefaultParams, ensure_directories
 from forage_rl.environments import (
     Maze,
-    MazePOMDP,
     load_builtin_maze_spec,
     resolve_effective_horizon,
 )
@@ -101,7 +100,6 @@ def _generate_single_run(task: GenerationTask) -> GenerationResult:
 
     resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
-    maze_cls = Maze if observable else MazePOMDP
     run_seed = None if base_seed is None else base_seed + run_id
     agent_seed = _derive_agent_seed(run_seed)
 
@@ -109,7 +107,7 @@ def _generate_single_run(task: GenerationTask) -> GenerationResult:
         configure_torch_worker(device)
 
     start = time.perf_counter()
-    maze = maze_cls(maze_spec, seed=run_seed, horizon=resolved_horizon)
+    maze = Maze(maze_spec, seed=run_seed, horizon=resolved_horizon, observable=observable)
     agent = get_agent(
         agent_type,
         maze,
