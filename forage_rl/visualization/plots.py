@@ -369,27 +369,19 @@ def _draw_modal_residency(ax: plt.Axes, trajectories: list[Trajectory], maze: Ma
     arr = np.array([sequence[:min_len] for sequence in state_sequences])
 
     if isinstance(maze, MazePOMDP):
-        obs_map = maze._state_to_observation_group
-        obs_arr = np.vectorize(obs_map.__getitem__)(arr)
         n_bins = maze.num_observations
-        modal_values: list[int] = []
-        frequencies: list[float] = []
-        for step in range(min_len):
-            counts = np.bincount(obs_arr[:, step], minlength=n_bins)
-            modal = int(np.argmax(counts))
-            modal_values.append(modal)
-            frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.maze_spec.observation_labels
     else:
         n_bins = maze.num_states
-        modal_values = []
-        frequencies = []
-        for step in range(min_len):
-            counts = np.bincount(arr[:, step], minlength=n_bins)
-            modal = int(np.argmax(counts))
-            modal_values.append(modal)
-            frequencies.append(counts[modal] / len(trajectories))
         y_labels = maze.state_labels or [f"State {state}" for state in range(n_bins)]
+
+    modal_values: list[int] = []
+    frequencies: list[float] = []
+    for step in range(min_len):
+        counts = np.bincount(arr[:, step], minlength=n_bins)
+        modal = int(np.argmax(counts))
+        modal_values.append(modal)
+        frequencies.append(counts[modal] / len(trajectories))
 
     ax.scatter(range(min_len), modal_values, s=np.array(frequencies) * 40, alpha=0.7, color="#3498db")
     ax.set_yticks(range(n_bins))
@@ -786,14 +778,12 @@ def _draw_residency_lines(
     spent in each state. Shows how time allocation shifts over training.
     """
     if isinstance(maze, MazePOMDP):
-        obs_map = maze._state_to_observation_group
-        states = np.array([obs_map[t.state] for t in trajectory.transitions])
         n_bins = maze.num_observations
         y_labels = list(maze.maze_spec.observation_labels)
     else:
-        states = np.array([t.state for t in trajectory.transitions])
         n_bins = maze.num_states
         y_labels = maze.state_labels or [f"State {s}" for s in range(n_bins)]
+    states = np.array([t.state for t in trajectory.transitions])
 
     n = len(states)
     w = window if window is not None else max(1, n // 10)
@@ -958,3 +948,10 @@ def plot_aggregate_comparison(
     filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
+
+def main():
+    plot_aggregate_trajectory_stats(Agent("q_learning"), "full_one_way", observable=False, show=False)
+    plot_single_run_stats(Agent("q_learning"), "full_one_way", observable=False, save=True, show=False)
+
+if __name__ == "__main__":
+    main()
