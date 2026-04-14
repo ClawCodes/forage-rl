@@ -52,7 +52,7 @@ leave2 = [[10, 1.0]]
 
 [states.5]
 label = "Lower Patch C"
-decay = 2.0f
+decay = 2.0
 observation_group = 1
 [states.5.transitions]
 stay = [[5, 1.0]]
