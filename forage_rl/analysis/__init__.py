@@ -25,6 +25,7 @@ from .perturbation_inputs import (
     split_post_perturbation_episodes,
 )
 from .recovery import (
+    boundary_window_segment_means,
     episode_prt_deviation_from_benchmark,
     recovery_auc,
     recovery_curve_for_episode_sequence,
@@ -40,6 +41,7 @@ from .recovery import (
 __all__ = [
     "build_patch_benchmark_maze",
     "build_external_perturbation_manifest",
+    "boundary_window_segment_means",
     "CombinedPerturbationRun",
     "episode_prt_deviation_from_benchmark",
     "episode_trajectories_from_combined_stream",

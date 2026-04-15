@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from forage_rl.agents.registry import Agent, agent_display_label
+from forage_rl.agents.registry import Agent, PolicySpec, agent_display_label
 from forage_rl.analysis import (
     patch_exit_action_indices,
     recovery_auc,
@@ -54,6 +54,15 @@ TABULAR_AGENTS: list[Agent] = [
     Agent.SRDyna,
     Agent.MBRL,
 ]
+
+NEURAL_POLICIES: list[PolicySpec] = [
+    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"),
+    PolicySpec(agent=Agent.ELMAN, context_mode="prev_reward"),
+    PolicySpec(agent=Agent.GRU, context_mode="prev_reward"),
+    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
+]
+
+PLOTTED_POLICIES: list[Agent | PolicySpec] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
 
 PERTURBATION_MAZES: list[str] = [
     "full_one_way_perturbed_latent_learning",
@@ -111,13 +120,55 @@ def _build_patch_labels(maze_name: str, observable: bool) -> dict[int, str]:
         return {i: label for i, label in enumerate(spec.maze.observation_labels)}
 
 
+def _policy_display_label(policy: Agent | PolicySpec) -> str:
+    if isinstance(policy, PolicySpec):
+        return policy.display_label
+    return agent_display_label(policy)
+
+
+def _run_ids_for(
+    policy: Agent | PolicySpec,
+    maze_name: str,
+    observable: bool,
+    horizon: int = HORIZON,
+) -> list[int]:
+    if isinstance(policy, PolicySpec):
+        return list_run_dataset_run_ids(
+            policy.agent,
+            maze_name,
+            observable,
+            context_mode=policy.context_mode,
+            horizon=horizon,
+        )
+    return list_run_dataset_run_ids(policy, maze_name, observable, horizon=horizon)
+
+
+def _load_run_dataset_for(
+    policy: Agent | PolicySpec,
+    run_id: int,
+    maze_name: str,
+    observable: bool,
+    horizon: int = HORIZON,
+):
+    if isinstance(policy, PolicySpec):
+        return load_run_dataset(
+            policy.agent,
+            run_id,
+            maze_name,
+            observable,
+            context_mode=policy.context_mode,
+            horizon=horizon,
+        )
+    return load_run_dataset(policy, run_id, maze_name, observable, horizon=horizon)
+
+
 def _compute_recovery_curves(
-    agents: list[Agent],
+    agents: list[Agent | PolicySpec],
     maze_name: str,
     observable: bool,
     horizon: int = HORIZON,
     perturbation_t: int = PERTURBATION_T,
-) -> dict[Agent, list[np.ndarray]]:
+) -> dict[Agent | PolicySpec, list[np.ndarray]]:
     """Load saved runs and compute a within-episode recovery curve per run.
 
     Benchmark PRTs come from the base (full_one_way) oracle so the recovery
@@ -130,20 +181,18 @@ def _compute_recovery_curves(
         maze_name=BASELINE_MAZE, observable=True, horizon=horizon
     )
 
-    curves_by_agent: dict[Agent, list[np.ndarray]] = {}
+    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
     for agent in agents:
-        run_ids = list_run_dataset_run_ids(
-            agent, maze_name, observable, horizon=horizon
-        )
+        run_ids = _run_ids_for(agent, maze_name, observable, horizon=horizon)
         if not run_ids:
             print(
-                f"  [SKIP] No data: {agent_display_label(agent)} / {maze_name} / "
+                f"  [SKIP] No data: {_policy_display_label(agent)} / {maze_name} / "
                 f"{'FO' if observable else 'PO'}"
             )
             continue
         agent_curves: list[np.ndarray] = []
         for run_id in run_ids:
-            run_dataset = load_run_dataset(
+            run_dataset = _load_run_dataset_for(
                 agent, run_id, maze_name, observable, horizon=horizon
             )
             # Flatten all episodes in the run into a single trajectory
@@ -164,12 +213,12 @@ def _compute_recovery_curves(
 
 
 def _compute_signed_recovery_curves(
-    agents: list[Agent],
+    agents: list[Agent | PolicySpec],
     maze_name: str,
     observable: bool,
     horizon: int = HORIZON,
     perturbation_t: int = PERTURBATION_T,
-) -> dict[Agent, list[np.ndarray]]:
+) -> dict[Agent | PolicySpec, list[np.ndarray]]:
     """Same as _compute_recovery_curves but returns signed deviations."""
     maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
     patch_labels = _build_patch_labels(maze_name, observable)
@@ -178,16 +227,14 @@ def _compute_signed_recovery_curves(
         maze_name=BASELINE_MAZE, observable=True, horizon=horizon
     )
 
-    curves_by_agent: dict[Agent, list[np.ndarray]] = {}
+    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
     for agent in agents:
-        run_ids = list_run_dataset_run_ids(
-            agent, maze_name, observable, horizon=horizon
-        )
+        run_ids = _run_ids_for(agent, maze_name, observable, horizon=horizon)
         if not run_ids:
             continue
         agent_curves: list[np.ndarray] = []
         for run_id in run_ids:
-            run_dataset = load_run_dataset(
+            run_dataset = _load_run_dataset_for(
                 agent, run_id, maze_name, observable, horizon=horizon
             )
             from forage_rl import Trajectory
@@ -207,11 +254,11 @@ def _compute_signed_recovery_curves(
 
 
 def _mean_auc(
-    curves_by_agent: dict[Agent, list[np.ndarray]],
+    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]],
     window: int = AUC_WINDOW,
-) -> dict[Agent, float]:
+) -> dict[Agent | PolicySpec, float]:
     """Compute mean recovery AUC across runs for each agent."""
-    result: dict[Agent, float] = {}
+    result: dict[Agent | PolicySpec, float] = {}
     for agent, curves in curves_by_agent.items():
         aucs = [recovery_auc(c, window) for c in curves]
         finite = [a for a in aucs if not np.isnan(a)]
@@ -228,9 +275,7 @@ def section_1_baseline(dirs: dict[str, Path], show: bool) -> None:
     print("\n=== Section 1: Baseline learning ===")
     for observable in OBSERVABILITY_CONDITIONS:
         obs_tag = "FO" if observable else "PO"
-        run_ids = list_run_dataset_run_ids(
-            TABULAR_AGENTS[0], BASELINE_MAZE, observable, horizon=HORIZON
-        )
+        run_ids = _run_ids_for(PLOTTED_POLICIES[0], BASELINE_MAZE, observable, horizon=HORIZON)
         if not run_ids:
             print(f"  [SKIP] No baseline data for {obs_tag}")
             continue
@@ -240,23 +285,21 @@ def section_1_baseline(dirs: dict[str, Path], show: bool) -> None:
         plot_episode_return_comparison(
             BASELINE_MAZE,
             observable=observable,
-            agents=TABULAR_AGENTS,
+            agents=PLOTTED_POLICIES,
             horizon=HORIZON,
             save=True,
             show=show,
             filepath=fp,
         )
 
-        for agent in TABULAR_AGENTS:
-            run_ids_agent = list_run_dataset_run_ids(
-                agent, BASELINE_MAZE, observable, horizon=HORIZON
-            )
+        for agent in PLOTTED_POLICIES:
+            run_ids_agent = _run_ids_for(agent, BASELINE_MAZE, observable, horizon=HORIZON)
             if not run_ids_agent:
-                print(f"  [SKIP] No data: {agent_display_label(agent)} baseline {obs_tag}")
+                print(f"  [SKIP] No data: {_policy_display_label(agent)} baseline {obs_tag}")
                 continue
-            agent_slug = agent.value
+            agent_slug = agent.artifact_label if isinstance(agent, PolicySpec) else agent.value
             fp = dirs["baseline"] / f"trajectory_stats_{agent_slug}_{BASELINE_MAZE}_{obs_tag}.png"
-            print(f"  trajectory stats: {agent_display_label(agent)} {obs_tag}")
+            print(f"  trajectory stats: {_policy_display_label(agent)} {obs_tag}")
             plot_aggregate_trajectory_stats(
                 agent,
                 BASELINE_MAZE,
@@ -284,10 +327,10 @@ def section_2_recovery_curves(dirs: dict[str, Path], show: bool) -> None:
             print(f"  {obs_tag} / {short}")
 
             curves = _compute_recovery_curves(
-                TABULAR_AGENTS, maze_name, observable
+                PLOTTED_POLICIES, maze_name, observable
             )
             signed = _compute_signed_recovery_curves(
-                TABULAR_AGENTS, maze_name, observable
+                PLOTTED_POLICIES, maze_name, observable
             )
 
             if not curves:
@@ -327,15 +370,15 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     print("\n=== Section 3: Recovery AUC heatmaps ===")
 
     # Collect AUC matrices for FO and PO
-    auc_fo: dict[Agent, dict[str, float]] = {a: {} for a in TABULAR_AGENTS}
-    auc_po: dict[Agent, dict[str, float]] = {a: {} for a in TABULAR_AGENTS}
+    auc_fo: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in PLOTTED_POLICIES}
+    auc_po: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in PLOTTED_POLICIES}
 
     for observable in OBSERVABILITY_CONDITIONS:
         store = auc_fo if observable else auc_po
         for maze_name in PERTURBATION_MAZES:
-            curves = _compute_recovery_curves(TABULAR_AGENTS, maze_name, observable)
+            curves = _compute_recovery_curves(PLOTTED_POLICIES, maze_name, observable)
             mean_aucs = _mean_auc(curves)
-            for agent in TABULAR_AGENTS:
+            for agent in PLOTTED_POLICIES:
                 store[agent][maze_name] = mean_aucs.get(agent, float("nan"))
 
     fp_fo = dirs["heatmap"] / "recovery_heatmap_FO.png"
@@ -343,7 +386,7 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     plot_recovery_heatmap(
         auc_fo,
         PERTURBATION_LABELS,
-        TABULAR_AGENTS,
+        PLOTTED_POLICIES,
         observable=True,
         save=True,
         show=show,
@@ -355,7 +398,7 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     plot_recovery_heatmap(
         auc_po,
         PERTURBATION_LABELS,
-        TABULAR_AGENTS,
+        PLOTTED_POLICIES,
         observable=False,
         save=True,
         show=show,
@@ -368,7 +411,7 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
         auc_fo,
         auc_po,
         PERTURBATION_LABELS,
-        TABULAR_AGENTS,
+        PLOTTED_POLICIES,
         save=True,
         show=show,
         filepath=fp_delta,
@@ -427,18 +470,16 @@ def section_5_patch_timing(dirs: dict[str, Path], show: bool) -> None:
     print("\n=== Section 5: Patch timing summaries ===")
     for observable in OBSERVABILITY_CONDITIONS:
         obs_tag = "FO" if observable else "PO"
-        for agent in TABULAR_AGENTS:
-            run_ids = list_run_dataset_run_ids(
-                agent, BASELINE_MAZE, observable, horizon=HORIZON
-            )
+        for agent in PLOTTED_POLICIES:
+            run_ids = _run_ids_for(agent, BASELINE_MAZE, observable, horizon=HORIZON)
             if not run_ids:
                 print(
-                    f"  [SKIP] No data: {agent_display_label(agent)} {obs_tag}"
+                    f"  [SKIP] No data: {_policy_display_label(agent)} {obs_tag}"
                 )
                 continue
-            agent_slug = agent.value
+            agent_slug = agent.artifact_label if isinstance(agent, PolicySpec) else agent.value
             fp = dirs["patch_timing"] / f"patch_timing_{agent_slug}_{BASELINE_MAZE}_{obs_tag}.png"
-            print(f"  {agent_display_label(agent)} {obs_tag}")
+            print(f"  {_policy_display_label(agent)} {obs_tag}")
             plot_patch_timing_summary(
                 agent,
                 BASELINE_MAZE,

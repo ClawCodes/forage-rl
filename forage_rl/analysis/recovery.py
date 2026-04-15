@@ -342,6 +342,41 @@ def _resolve_boundary_windows(
     return window_before, window_after
 
 
+def _finite_mean(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return float("nan")
+    return float(np.mean(finite))
+
+
+def boundary_window_segment_means(
+    curve: np.ndarray,
+    *,
+    window: int | None = None,
+    window_before: int | None = None,
+    window_after: int | None = None,
+) -> tuple[float, float]:
+    """Return finite means for the pre- and post-perturbation window segments."""
+    resolved_before, resolved_after = _resolve_boundary_windows(
+        window=window,
+        window_before=window_before,
+        window_after=window_after,
+    )
+    expected_length = resolved_before + resolved_after + 1
+    arr = np.asarray(curve, dtype=float)
+    if arr.shape[0] != expected_length:
+        raise ValueError(
+            "boundary-window curve length must equal "
+            "window_before + window_after + 1, "
+            f"got len={arr.shape[0]} expected={expected_length}."
+        )
+
+    before_mean = _finite_mean(arr[:resolved_before])
+    after_mean = _finite_mean(arr[resolved_before + 1 :])
+    return before_mean, after_mean
+
+
 def within_episode_boundary_window_recovery_curve_for_trajectory(
     trajectory: Trajectory,
     *,

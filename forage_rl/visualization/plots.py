@@ -19,6 +19,7 @@ from forage_rl.analysis.patch_timing import (
     oracle_residency_deviation_by_patch,
     normalized_curve_auc,
     observation_group_patch_labels,
+    state_patch_labels,
 )
 from forage_rl.config import FIGURES_DIR, ensure_directories
 from forage_rl.environments import resolve_effective_horizon
@@ -624,18 +625,21 @@ def _extract_run_decision_rows(
     observable: bool,
 ) -> list:
     if observable:
-        patch_labels = {
-            int(state_spec.id): state_spec.label for state_spec in maze.maze_spec.states
-        }
+        patch_labels = state_patch_labels(maze_name)
     else:
         patch_labels = observation_group_patch_labels(maze_name)
+    inference_maze = (
+        maze
+        if observable
+        else maze_from_builtin_maze_spec(maze_name, True, horizon=maze.horizon)
+    )
 
     rows = []
     for trajectory in run_dataset:
         resolved_states = (
             None
             if observable
-            else infer_hidden_states_for_trajectory(trajectory, maze=maze)
+            else infer_hidden_states_for_trajectory(trajectory, maze=inference_maze)
         )
         rows.extend(
             extract_decision_rows(
@@ -679,14 +683,18 @@ def plot_patch_timing_summary(
         maze_name=maze_name,
         horizon=resolved_horizon,
     )
-    patch_order = list(
-        maze.maze_spec.observation_labels or ["Upper Patch", "Lower Patch"]
-    )
-    deviation_offset = resolved_horizon
-    curve_width = resolved_horizon * 2 + 1
-
+    patch_label_by_state = state_patch_labels(maze_name)
+    patch_order: list[str] = []
+    seen_patch_labels: set[str] = set()
+    for state_spec in maze.maze_spec.states:
+        if int(state_spec.id) not in optimal_dwell_by_state:
+            continue
+        patch_label = patch_label_by_state[int(state_spec.id)]
+        if patch_label in seen_patch_labels:
+            continue
+        patch_order.append(patch_label)
+        seen_patch_labels.add(patch_label)
     deviations_by_patch = {patch_label: [] for patch_label in patch_order}
-    curves_by_patch = {patch_label: [] for patch_label in patch_order}
 
     for run_id in selected_run_ids:
         run_dataset = _load_policy_run_dataset(
@@ -702,6 +710,9 @@ def plot_patch_timing_summary(
             maze=maze,
             observable=observable,
         )
+        rows = [row for row in rows if row.state in optimal_dwell_by_state]
+        if not rows:
+            continue
         run_deviations = oracle_residency_deviation_by_patch(
             rows,
             leave_action=leave_action,
@@ -709,24 +720,7 @@ def plot_patch_timing_summary(
         )
         for patch_label, deviations in run_deviations.items():
             deviations_by_patch.setdefault(patch_label, []).extend(deviations)
-            curve = leave_probability_curve(
-                rows,
-                value_getter=lambda row, optimal=optimal_dwell_by_state, offset=deviation_offset: (
-                    row.time_spent + 1 - optimal[row.state] + offset
-                ),
-                leave_action=leave_action,
-                max_value=curve_width,
-                patch_label=patch_label,
-            )
-            if np.any(np.isfinite(curve)):
-                curves_by_patch.setdefault(patch_label, []).append(curve)
-
-    fig, (ax_deviation, ax_curve) = plt.subplots(
-        1,
-        2,
-        figsize=(15, 5),
-        constrained_layout=True,
-    )
+    fig, ax_deviation = plt.subplots(figsize=(8, 5), constrained_layout=True)
 
     plotted_deviations = [
         deviations_by_patch.get(patch_label, []) for patch_label in patch_order
@@ -754,52 +748,6 @@ def plot_patch_timing_summary(
         )
     ax_deviation.set_ylabel("Actual Dwell - Oracle Optimal Dwell", fontsize=12)
     ax_deviation.set_title("Patch Residency Deviation vs Oracle", fontsize=14)
-
-    color_by_patch = {
-        "Upper Patch": "#3498db",
-        "Lower Patch": "#e67e22",
-    }
-    plotted_curves = False
-    for patch_label in patch_order:
-        patch_curves = curves_by_patch.get(patch_label, [])
-        if not patch_curves:
-            continue
-        summary = aggregate_curves(patch_curves)
-        x = summary.x - deviation_offset
-        auc = normalized_curve_auc(summary.mean)
-        color = color_by_patch.get(patch_label, "#34495e")
-        ax_curve.plot(
-            x,
-            summary.mean,
-            linewidth=2,
-            color=color,
-            label=f"{patch_label} (AUC={auc:.2f})",
-        )
-        ax_curve.fill_between(
-            x,
-            summary.mean - summary.std,
-            summary.mean + summary.std,
-            alpha=0.2,
-            color=color,
-        )
-        plotted_curves = True
-
-    if not plotted_curves:
-        ax_curve.text(
-            0.5,
-            0.5,
-            "No leave-probability curves available",
-            ha="center",
-            va="center",
-            transform=ax_curve.transAxes,
-        )
-    else:
-        ax_curve.legend(fontsize=10)
-    ax_curve.axvline(0.0, color="gray", linestyle="--", alpha=0.8)
-    ax_curve.set_ylim(0.0, 1.0)
-    ax_curve.set_xlabel("Dwell Deviation From Oracle Optimal", fontsize=12)
-    ax_curve.set_ylabel("Leave Probability", fontsize=12)
-    ax_curve.set_title("Leave Probability vs Oracle Deviation", fontsize=14)
 
     fig.suptitle(
         _figure_title(
@@ -1431,9 +1379,9 @@ def plot_visit_index_recovery_comparison(
 
 
 def plot_recovery_heatmap(
-    auc_matrix: dict[Agent, dict[str, float]],
+    auc_matrix: dict[PolicyInput, dict[str, float]],
     perturbation_labels: dict[str, str],
-    agent_order: list[Agent],
+    agent_order: list[PolicyInput],
     *,
     observable: bool = True,
     save: bool = False,
@@ -1479,7 +1427,7 @@ def plot_recovery_heatmap(
     ax.set_xticks(range(n_cols))
     ax.set_xticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
     ax.set_yticks(range(n_rows))
-    ax.set_yticklabels([agent_display_label(a) for a in agent_order], fontsize=11)
+    ax.set_yticklabels([_policy_label(a) for a in agent_order], fontsize=11)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("Mean Recovery AUC (lower = faster)", fontsize=10)
@@ -1498,10 +1446,10 @@ def plot_recovery_heatmap(
 
 
 def plot_recovery_heatmap_delta(
-    auc_fo: dict[Agent, dict[str, float]],
-    auc_po: dict[Agent, dict[str, float]],
+    auc_fo: dict[PolicyInput, dict[str, float]],
+    auc_po: dict[PolicyInput, dict[str, float]],
     perturbation_labels: dict[str, str],
-    agent_order: list[Agent],
+    agent_order: list[PolicyInput],
     *,
     save: bool = False,
     show: bool = True,
@@ -1545,7 +1493,7 @@ def plot_recovery_heatmap_delta(
     ax.set_xticks(range(n_cols))
     ax.set_xticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
     ax.set_yticks(range(n_rows))
-    ax.set_yticklabels([agent_display_label(a) for a in agent_order], fontsize=11)
+    ax.set_yticklabels([_policy_label(a) for a in agent_order], fontsize=11)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("AUC(PO) − AUC(FO)  (positive = PO hurts more)", fontsize=10)

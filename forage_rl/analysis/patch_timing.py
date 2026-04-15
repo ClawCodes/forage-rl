@@ -51,8 +51,23 @@ class CurveSummary:
 
 
 def observation_group_patch_labels(maze_name: str) -> dict[int, str]:
-    """Return one patch label for each observation group in a built-in maze."""
+    """Return one display label for each observation group in a built-in maze."""
     maze_spec = load_builtin_maze_spec(maze_name)
+    observation_labels = list(maze_spec.observation_labels)
+    if observation_labels:
+        observation_groups = sorted(
+            {int(state.observation_group) for state in maze_spec.states}
+        )
+        if observation_groups and max(observation_groups) >= len(observation_labels):
+            raise ValueError(
+                "Maze observation_labels do not cover every observation group, "
+                f"got groups={observation_groups} labels={observation_labels!r}."
+            )
+        return {
+            observation_group: observation_labels[observation_group]
+            for observation_group in observation_groups
+        }
+
     labels_by_group: dict[int, set[str]] = {}
     for state in maze_spec.states:
         labels_by_group.setdefault(state.observation_group, set()).add(state.label)
@@ -66,6 +81,16 @@ def observation_group_patch_labels(maze_name: str) -> dict[int, str]:
             )
         patch_labels[observation_group] = next(iter(labels))
     return patch_labels
+
+
+def state_patch_labels(maze_name: str) -> dict[int, str]:
+    """Return state ids mapped to patch-level display labels."""
+    maze_spec = load_builtin_maze_spec(maze_name)
+    labels_by_group = observation_group_patch_labels(maze_name)
+    return {
+        int(state.id): labels_by_group.get(int(state.observation_group), state.label)
+        for state in maze_spec.states
+    }
 
 
 def observation_group_state_ids(maze: Maze) -> dict[int, tuple[int, ...]]:
