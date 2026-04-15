@@ -41,6 +41,7 @@ from forage_rl.visualization import (
     plot_recovery_heatmap,
     plot_recovery_heatmap_delta,
     plot_signed_recovery_curve_comparison,
+    plot_single_run_stats,
 )
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,7 @@ def _make_dirs() -> dict[str, Path]:
         "comparisons_fo": FIGURES_DIR / "04_comparisons" / "FO",
         "comparisons_po": FIGURES_DIR / "04_comparisons" / "PO",
         "patch_timing": FIGURES_DIR / "05_patch_timing",
+        "single": FIGURES_DIR / "06_single",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
@@ -492,6 +494,42 @@ def section_5_patch_timing(dirs: dict[str, Path], show: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Section 6 — Single-run trajectory stats
+# ---------------------------------------------------------------------------
+
+
+def section_6_single_run_stats(dirs: dict[str, Path], show: bool) -> None:
+    print("\n=== Section 6: Single-run trajectory stats ===")
+    preferred_observability = [False, True]
+    for agent in PLOTTED_POLICIES:
+        selected_observable: bool | None = None
+        for observable in preferred_observability:
+            run_ids = _run_ids_for(agent, BASELINE_MAZE, observable, horizon=HORIZON)
+            if run_ids:
+                selected_observable = observable
+                break
+        if selected_observable is None:
+            print(f"  [SKIP] No data: {_policy_display_label(agent)}")
+            continue
+
+        obs_tag = "FO" if selected_observable else "PO"
+        agent_slug = (
+            agent.artifact_label if isinstance(agent, PolicySpec) else agent.value
+        )
+        fp = dirs["single"] / f"single_run_{agent_slug}_{BASELINE_MAZE}_{obs_tag}.png"
+        print(f"  {_policy_display_label(agent)} {obs_tag}")
+        plot_single_run_stats(
+            agent,
+            BASELINE_MAZE,
+            observable=selected_observable,
+            horizon=HORIZON,
+            save=True,
+            show=show,
+            filepath=fp,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -520,6 +558,7 @@ def main() -> None:
     section_3_heatmap(dirs, show=args.show)
     section_4_comparisons(dirs, show=args.show)
     section_5_patch_timing(dirs, show=args.show)
+    section_6_single_run_stats(dirs, show=args.show)
 
     print("\nDone. Figures saved under:", FIGURES_DIR)
 

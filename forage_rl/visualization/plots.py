@@ -883,6 +883,7 @@ def plot_single_run_stats(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
     horizon: int | None = None,
+    filepath: Path | None = None,
 ) -> plt.Figure | None:
     """Plot cumulative reward and raw residency scatter for one saved training run.
 
@@ -917,13 +918,14 @@ def plot_single_run_stats(
         fontweight="bold",
     )
 
-    filename = (
-        f"single_run_{_policy_artifact_label(source_spec)}_"
-        f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
-    )
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = (
+            f"single_run_{_policy_artifact_label(source_spec)}_"
+            f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+        )
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -1234,7 +1236,8 @@ def plot_boundary_window_recovery_comparison(
     benchmark_label: str | None = None,
     smoothing_window: int = 7,
 ):
-    """Plot signed recovery around the perturbation boundary."""
+    """Plot mean dwell deviation before vs after the perturbation boundary."""
+    del smoothing_window
     resolved_before, resolved_after = _resolve_boundary_plot_windows(
         boundary_window=boundary_window,
         boundary_window_before=boundary_window_before,
@@ -1242,40 +1245,93 @@ def plot_boundary_window_recovery_comparison(
     )
     fig, ax = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
 
-    plotted_any = False
+    labels: list[str] = []
+    before_means: list[float] = []
+    before_stds: list[float] = []
+    after_means: list[float] = []
+    after_stds: list[float] = []
     for label, curves in _policy_series_items(curves_by_policy):
         if not curves:
             continue
-        summary = aggregate_curves(curves)
-        if summary.x.size == 0 or not np.any(np.isfinite(summary.mean)):
+        phase_means = np.array(
+            [
+                _boundary_window_phase_means(
+                    curve,
+                    boundary_window_before=resolved_before,
+                    boundary_window_after=resolved_after,
+                )
+                for curve in curves
+            ],
+            dtype=float,
+        )
+        before_values = phase_means[:, 0]
+        before_values = before_values[np.isfinite(before_values)]
+        after_values = phase_means[:, 1]
+        after_values = after_values[np.isfinite(after_values)]
+        if before_values.size == 0 and after_values.size == 0:
             continue
-        x = np.arange(-resolved_before, resolved_after + 1, dtype=int)
-        if x.shape[0] != summary.x.shape[0]:
-            raise ValueError(
-                "Boundary-window curves must all have length "
-                "boundary_window_before + boundary_window_after + 1."
-            )
-        mean = _smooth_series(summary.mean, smoothing_window)
-        ax.plot(x, mean, linewidth=2, label=label)
-        plotted_any = True
+        labels.append(label)
+        before_means.append(
+            float(np.mean(before_values)) if before_values.size > 0 else float("nan")
+        )
+        before_stds.append(
+            float(np.std(before_values)) if before_values.size > 0 else 0.0
+        )
+        after_means.append(
+            float(np.mean(after_values)) if after_values.size > 0 else float("nan")
+        )
+        after_stds.append(
+            float(np.std(after_values)) if after_values.size > 0 else 0.0
+        )
 
-    if not plotted_any:
+    if not labels:
         ax.text(
             0.5,
             0.5,
-            "No boundary-window recovery values available",
+            "No boundary-window dwell deviations available",
             ha="center",
             va="center",
             transform=ax.transAxes,
         )
     else:
+        positions = np.arange(len(labels), dtype=float)
+        width = 0.35
+        before_means_arr = np.asarray(before_means, dtype=float)
+        before_stds_arr = np.asarray(before_stds, dtype=float)
+        after_means_arr = np.asarray(after_means, dtype=float)
+        after_stds_arr = np.asarray(after_stds, dtype=float)
+
+        ax.bar(
+            positions - width / 2,
+            before_means_arr,
+            width,
+            yerr=np.where(np.isfinite(before_means_arr), before_stds_arr, 0.0),
+            capsize=4,
+            color="#4c78a8",
+            alpha=0.85,
+            label=f"{resolved_before} Steps Before",
+        )
+        ax.bar(
+            positions + width / 2,
+            after_means_arr,
+            width,
+            yerr=np.where(np.isfinite(after_means_arr), after_stds_arr, 0.0),
+            capsize=4,
+            color="#f28e2b",
+            alpha=0.85,
+            label=f"{resolved_after} Steps After",
+        )
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels, rotation=20, ha="right")
         ax.legend(fontsize=10)
 
-    ax.axvline(0, color="black", linestyle="--", alpha=0.8)
     ax.axhline(0, color="gray", linestyle="--", alpha=0.8)
-    ax.set_xlabel("Steps Relative To Perturbation", fontsize=12)
-    ax.set_ylabel("Dwell Deviation", fontsize=12)
-    title = _figure_title("Signed Recovery Around Perturbation", benchmark_label)
+    ax.set_xlabel("Policy", fontsize=12)
+    ax.set_ylabel("Average Dwell Deviation", fontsize=12)
+    title = _figure_title(
+        "Average Dwell Deviation Before vs After Perturbation",
+        benchmark_label,
+    )
     context = _recovery_title_context(maze_name, observable, condition_label)
     ax.set_title(f"{title}\n{context}", fontsize=13)
 
@@ -1285,6 +1341,35 @@ def plot_boundary_window_recovery_comparison(
     filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
+
+
+def _boundary_window_phase_means(
+    curve: np.ndarray,
+    *,
+    boundary_window_before: int,
+    boundary_window_after: int,
+) -> tuple[float, float]:
+    """Return the mean finite deviation before and after the perturbation step."""
+    arr = np.asarray(curve, dtype=float)
+    expected_length = boundary_window_before + boundary_window_after + 1
+    if arr.shape[0] != expected_length:
+        raise ValueError(
+            "Boundary-window curves must all have length "
+            "boundary_window_before + boundary_window_after + 1."
+        )
+
+    before_values = arr[:boundary_window_before]
+    after_values = arr[boundary_window_before + 1 :]
+    return _finite_mean(before_values), _finite_mean(after_values)
+
+
+def _finite_mean(values: np.ndarray) -> float:
+    """Return the mean of finite values or NaN when no finite values exist."""
+    arr = np.asarray(values, dtype=float)
+    finite_values = arr[np.isfinite(arr)]
+    if finite_values.size == 0:
+        return float("nan")
+    return float(np.mean(finite_values))
 
 
 def _resolve_boundary_plot_windows(
@@ -1376,8 +1461,6 @@ def plot_visit_index_recovery_comparison(
     filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
-
-
 def plot_recovery_heatmap(
     auc_matrix: dict[PolicyInput, dict[str, float]],
     perturbation_labels: dict[str, str],

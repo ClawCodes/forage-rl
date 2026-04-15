@@ -345,15 +345,13 @@ def run_external_perturbation_analysis(
         maze_name, observable, perturbation_kind, perturbation_id, benchmark_kind, result_granularity = condition_key
         curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
         signed_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
-        boundary_window_signed_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
+        boundary_window_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
         aucs_by_policy: dict[PolicySpec | str, list[float]] = defaultdict(list)
         for result in results:
             policy = _manifest_policy(result.run)
             curves_by_policy[policy].append(result.absolute_recovery_curve)
             signed_curves_by_policy[policy].append(result.signed_recovery_curve)
-            boundary_window_signed_curves_by_policy[policy].append(
-                result.boundary_window_signed_curve
-            )
+            boundary_window_curves_by_policy[policy].append(result.boundary_window_curve)
             aucs_by_policy[policy].append(result.recovery_auc)
 
         perturbation_label = (
@@ -406,7 +404,7 @@ def run_external_perturbation_analysis(
             show=show,
         )
         plot_boundary_window_recovery_comparison(
-            boundary_window_signed_curves_by_policy,
+            boundary_window_curves_by_policy,
             boundary_window=effective_boundary_window,
             boundary_window_before=boundary_window_before,
             boundary_window_after=boundary_window_after,
@@ -493,19 +491,28 @@ def main() -> None:
         "--boundary-window",
         type=int,
         default=100,
-        help="Number of transitions before and after perturbation for the centered boundary plot.",
+        help=(
+            "Number of transitions before and after perturbation to average in the "
+            "before/after dwell-deviation bar chart."
+        ),
     )
     parser.add_argument(
         "--boundary-window-before",
         type=int,
         default=None,
-        help="Optional number of transitions before perturbation for the centered boundary plot.",
+        help=(
+            "Optional number of transitions before perturbation to average in the "
+            "before/after dwell-deviation bar chart."
+        ),
     )
     parser.add_argument(
         "--boundary-window-after",
         type=int,
         default=None,
-        help="Optional number of transitions after perturbation for the centered boundary plot.",
+        help=(
+            "Optional number of transitions after perturbation to average in the "
+            "before/after dwell-deviation bar chart."
+        ),
     )
     parser.add_argument(
         "--benchmark-mode",
