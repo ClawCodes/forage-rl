@@ -196,13 +196,13 @@ def _run_single_recovery_experiment(
     curve = recovery_curve_for_run(
         post_run,
         patch_labels=patch_labels,
-        leave_action=leave_action,
+        exit_actions=leave_action,
         benchmark_prt_by_state=benchmark_prt_by_state,
     )
     signed_curve = signed_recovery_curve_for_run(
         post_run,
         patch_labels=patch_labels,
-        leave_action=leave_action,
+        exit_actions=leave_action,
         benchmark_prt_by_state=benchmark_prt_by_state,
     )
     auc = recovery_auc(curve, recovery_window)

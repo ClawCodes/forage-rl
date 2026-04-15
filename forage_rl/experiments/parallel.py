@@ -62,6 +62,31 @@ def split_torch_items(
     return cpu_items, torch_items
 
 
+def build_torch_batches(
+    items: list[TAgentLike] | None,
+    *,
+    device: str,
+    cpu_label: str = "CPU-only",
+    neural_label: str = "neural",
+    combined_cpu_label: str = "mixed CPU",
+) -> list[tuple[list[TAgentLike], bool, str]]:
+    """Batch items for execution, keeping CPU neural work combined."""
+    if not items:
+        return []
+
+    if not uses_torch_agents(items):
+        return [(list(items), False, cpu_label)]
+
+    if resolve_device(device) == "cpu":
+        return [(list(items), True, combined_cpu_label)]
+
+    cpu_items, torch_items = split_torch_items(items)
+    return [
+        (cpu_items, False, cpu_label),
+        (torch_items, True, neural_label),
+    ]
+
+
 def resolve_worker_count(task_count: int, workers: int | None = None) -> int:
     """Resolve the number of workers to use for a task batch."""
     if task_count < 0:

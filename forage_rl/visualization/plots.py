@@ -1035,6 +1035,44 @@ def _policy_series_items(
     return sorted(items, key=lambda item: item[0])
 
 
+def _curve_matrix(curves: list[np.ndarray]) -> np.ndarray:
+    if not curves:
+        return np.empty((0, 0), dtype=float)
+    max_len = max(len(curve) for curve in curves)
+    matrix = np.full((len(curves), max_len), np.nan, dtype=float)
+    for row_index, curve in enumerate(curves):
+        arr = np.asarray(curve, dtype=float)
+        matrix[row_index, : arr.shape[0]] = arr
+    return matrix
+
+
+def _finite_support_counts(curves: list[np.ndarray]) -> np.ndarray:
+    matrix = _curve_matrix(curves)
+    if matrix.size == 0:
+        return np.array([], dtype=int)
+    return np.sum(np.isfinite(matrix), axis=0, dtype=int)
+
+
+def _smooth_series(values: np.ndarray, window: int) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0 or window <= 1:
+        return arr.copy()
+    if window % 2 == 0:
+        window += 1
+
+    finite_mask = np.isfinite(arr)
+    if not np.any(finite_mask):
+        return arr.copy()
+
+    kernel = np.ones(window, dtype=float)
+    numerator = np.convolve(np.where(finite_mask, arr, 0.0), kernel, mode="same")
+    denominator = np.convolve(finite_mask.astype(float), kernel, mode="same")
+    smoothed = arr.copy()
+    valid = denominator > 0
+    smoothed[valid] = numerator[valid] / denominator[valid]
+    return smoothed
+
+
 def plot_recovery_curve_comparison(
     curves_by_policy: dict[PolicyInput, list[np.ndarray]],
     *,
@@ -1046,6 +1084,7 @@ def plot_recovery_curve_comparison(
     show: bool = True,
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
+    x_label: str = "Post-Perturbation Episode",
 ):
     """Plot mean absolute recovery curves with run-level variability."""
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
@@ -1055,6 +1094,8 @@ def plot_recovery_curve_comparison(
         if not curves:
             continue
         summary = aggregate_curves(curves)
+        if summary.x.size == 0 or not np.any(np.isfinite(summary.mean)):
+            continue
         x = summary.x + 1
         ax.plot(x, summary.mean, linewidth=2, label=label)
         ax.fill_between(
@@ -1077,7 +1118,7 @@ def plot_recovery_curve_comparison(
     else:
         ax.legend(fontsize=10)
 
-    ax.set_xlabel("Post-Perturbation Episode", fontsize=12)
+    ax.set_xlabel(x_label, fontsize=12)
     ax.set_ylabel("Mean Absolute Dwell Deviation", fontsize=12)
     ax.set_title(
         _figure_title(
@@ -1106,6 +1147,7 @@ def plot_signed_recovery_curve_comparison(
     show: bool = True,
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
+    x_label: str = "Post-Perturbation Episode",
 ):
     """Plot mean signed recovery curves to distinguish under- and over-stay."""
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
@@ -1115,6 +1157,8 @@ def plot_signed_recovery_curve_comparison(
         if not curves:
             continue
         summary = aggregate_curves(curves)
+        if summary.x.size == 0 or not np.any(np.isfinite(summary.mean)):
+            continue
         x = summary.x + 1
         ax.plot(x, summary.mean, linewidth=2, label=label)
         ax.fill_between(
@@ -1138,7 +1182,7 @@ def plot_signed_recovery_curve_comparison(
         ax.legend(fontsize=10)
 
     ax.axhline(0.0, color="gray", linestyle="--", alpha=0.8)
-    ax.set_xlabel("Post-Perturbation Episode", fontsize=12)
+    ax.set_xlabel(x_label, fontsize=12)
     ax.set_ylabel("Mean Signed Dwell Deviation", fontsize=12)
     ax.set_title(
         _figure_title(
@@ -1168,12 +1212,11 @@ def plot_recovery_auc_comparison(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
 ):
-    """Plot mean recovery AUC by policy with run-level standard deviation."""
+    """Plot mean recovery AUC by policy."""
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
 
     labels: list[str] = []
     means: list[float] = []
-    stds: list[float] = []
     for label, values in _policy_series_items(aucs_by_policy):
         arr = np.asarray(values, dtype=float)
         arr = arr[np.isfinite(arr)]
@@ -1181,7 +1224,6 @@ def plot_recovery_auc_comparison(
             continue
         labels.append(label)
         means.append(float(np.mean(arr)))
-        stds.append(float(np.std(arr, ddof=0)))
 
     if not labels:
         ax.text(
@@ -1194,20 +1236,176 @@ def plot_recovery_auc_comparison(
         )
     else:
         positions = np.arange(len(labels))
-        ax.bar(positions, means, yerr=stds, alpha=0.7, color="#2c7fb8", capsize=4)
+        ax.bar(positions, means, alpha=0.7, color="#2c7fb8")
         ax.set_xticks(positions)
         ax.set_xticklabels(labels, rotation=20, ha="right")
 
     ax.set_ylabel("Recovery AUC", fontsize=12)
-    ax.set_title(
-        _figure_title(
-            f"Recovery AUC Comparison ({_recovery_title_context(maze_name, observable, condition_label)})",
-            benchmark_label,
-        ),
-        fontsize=14,
-    )
+    title = _figure_title("Recovery AUC", benchmark_label)
+    context = _recovery_title_context(maze_name, observable, condition_label)
+    ax.set_title(f"{title}\n{context}", fontsize=13)
 
     filename = f"recovery_auc_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def plot_boundary_window_recovery_comparison(
+    curves_by_policy: dict[PolicyInput, list[np.ndarray]],
+    *,
+    boundary_window: int | None = None,
+    boundary_window_before: int | None = None,
+    boundary_window_after: int | None = None,
+    maze_name: str = "simple",
+    observable: bool = True,
+    perturbation_label: str = "decay_swap",
+    condition_label: str | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+    smoothing_window: int = 7,
+):
+    """Plot signed recovery around the perturbation boundary."""
+    resolved_before, resolved_after = _resolve_boundary_plot_windows(
+        boundary_window=boundary_window,
+        boundary_window_before=boundary_window_before,
+        boundary_window_after=boundary_window_after,
+    )
+    fig, ax = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
+
+    plotted_any = False
+    for label, curves in _policy_series_items(curves_by_policy):
+        if not curves:
+            continue
+        summary = aggregate_curves(curves)
+        if summary.x.size == 0 or not np.any(np.isfinite(summary.mean)):
+            continue
+        x = np.arange(-resolved_before, resolved_after + 1, dtype=int)
+        if x.shape[0] != summary.x.shape[0]:
+            raise ValueError(
+                "Boundary-window curves must all have length "
+                "boundary_window_before + boundary_window_after + 1."
+            )
+        mean = _smooth_series(summary.mean, smoothing_window)
+        ax.plot(x, mean, linewidth=2, label=label)
+        plotted_any = True
+
+    if not plotted_any:
+        ax.text(
+            0.5,
+            0.5,
+            "No boundary-window recovery values available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+    else:
+        ax.legend(fontsize=10)
+
+    ax.axvline(0, color="black", linestyle="--", alpha=0.8)
+    ax.axhline(0, color="gray", linestyle="--", alpha=0.8)
+    ax.set_xlabel("Steps Relative To Perturbation", fontsize=12)
+    ax.set_ylabel("Dwell Deviation", fontsize=12)
+    title = _figure_title("Signed Recovery Around Perturbation", benchmark_label)
+    context = _recovery_title_context(maze_name, observable, condition_label)
+    ax.set_title(f"{title}\n{context}", fontsize=13)
+
+    filename = f"boundary_window_recovery_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+    if filename_suffix is not None:
+        filename = f"{filename}_{filename_suffix}"
+    filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def _resolve_boundary_plot_windows(
+    *,
+    boundary_window: int | None = None,
+    boundary_window_before: int | None = None,
+    boundary_window_after: int | None = None,
+) -> tuple[int, int]:
+    if boundary_window_before is None and boundary_window_after is None:
+        if boundary_window is None:
+            raise ValueError(
+                "Specify boundary_window or both boundary_window_before/boundary_window_after."
+            )
+        if boundary_window <= 0:
+            raise ValueError(
+                f"boundary_window must be > 0, got {boundary_window}"
+            )
+        return boundary_window, boundary_window
+
+    if boundary_window is not None:
+        raise ValueError(
+            "Specify either boundary_window or boundary_window_before/boundary_window_after, not both."
+        )
+    if boundary_window_before is None or boundary_window_after is None:
+        raise ValueError(
+            "boundary_window_before and boundary_window_after must be provided together."
+        )
+    if boundary_window_before <= 0 or boundary_window_after <= 0:
+        raise ValueError(
+            "boundary_window_before and boundary_window_after must both be > 0, "
+            f"got {boundary_window_before} and {boundary_window_after}."
+        )
+    return boundary_window_before, boundary_window_after
+
+
+def plot_visit_index_recovery_comparison(
+    curves_by_policy: dict[PolicyInput, list[np.ndarray]],
+    *,
+    maze_name: str = "simple",
+    observable: bool = True,
+    perturbation_label: str = "decay_swap",
+    condition_label: str | None = None,
+    save: bool = False,
+    show: bool = True,
+    filename_suffix: str | None = None,
+    benchmark_label: str | None = None,
+):
+    """Plot post-perturbation recovery against complete visit index."""
+    fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
+
+    plotted_any = False
+    for label, curves in _policy_series_items(curves_by_policy):
+        if not curves:
+            continue
+        summary = aggregate_curves(curves)
+        if summary.x.size == 0 or not np.any(np.isfinite(summary.mean)):
+            continue
+        x = summary.x + 1
+        ax.plot(x, summary.mean, linewidth=2, label=label)
+        ax.fill_between(
+            x,
+            summary.mean - summary.std,
+            summary.mean + summary.std,
+            alpha=0.2,
+        )
+        plotted_any = True
+
+    if not plotted_any:
+        ax.text(
+            0.5,
+            0.5,
+            "No visit-index recovery curves available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+    else:
+        ax.legend(fontsize=10)
+
+    ax.set_xlabel("Complete Visit Index After Perturbation", fontsize=12)
+    ax.set_ylabel("Mean Absolute Dwell Deviation", fontsize=12)
+    title = _figure_title("Visit-Index Recovery", benchmark_label)
+    context = _recovery_title_context(maze_name, observable, condition_label)
+    ax.set_title(f"{title}\n{context}", fontsize=13)
+
+    filename = f"visit_index_recovery_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
     if filename_suffix is not None:
         filename = f"{filename}_{filename_suffix}"
     filepath = FIGURES_DIR / f"{filename}.png"

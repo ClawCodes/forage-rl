@@ -14,10 +14,9 @@ from forage_rl.environments import (
     resolve_effective_horizon,
 )
 from forage_rl.experiments.parallel import (
+    build_torch_batches,
     is_neural_agent,
     resolve_execution_strategy,
-    split_torch_items,
-    uses_torch_agents,
 )
 from forage_rl.utils.torch_support import configure_torch_worker
 from forage_rl.utils import save_run_dataset
@@ -228,14 +227,7 @@ def run_generation_experiment(
     ensure_directories()
 
     agent_types = registered_agents() if agent_types is None else agent_types
-    cpu_agents, neural_agents = split_torch_items(agent_types)
-    if uses_torch_agents(agent_types):
-        batches: list[tuple[list[Agent], bool, str]] = [
-            (cpu_agents, False, "CPU-only"),
-            (neural_agents, True, "neural"),
-        ]
-    else:
-        batches = [(cpu_agents, False, "CPU-only")]
+    batches = build_torch_batches(agent_types, device=device)
 
     total_task_count = sum(len(agent_batch) * num_runs for agent_batch, _, _ in batches)
     if total_task_count == 0:

@@ -13,17 +13,24 @@ from forage_rl.analysis import (
     CombinedPerturbationRun,
     build_patch_benchmark_maze,
     load_combined_perturbation_runs,
+    patch_exit_action_indices,
     recovery_auc,
     recovery_curve_for_episode_sequence,
     resolve_patch_benchmark_kind,
     resolve_patch_benchmark_prt,
     signed_recovery_curve_for_episode_sequence,
+    within_episode_boundary_window_recovery_curve_for_trajectory,
+    within_episode_recovery_curve_for_trajectory,
+    within_episode_signed_boundary_window_recovery_curve_for_trajectory,
+    within_episode_signed_recovery_curve_for_trajectory,
 )
 from forage_rl.analysis.patch_timing import infer_hidden_states_for_trajectory
 from forage_rl.visualization import (
+    plot_boundary_window_recovery_comparison,
     plot_recovery_auc_comparison,
     plot_recovery_curve_comparison,
     plot_signed_recovery_curve_comparison,
+    plot_visit_index_recovery_comparison,
 )
 
 
@@ -31,9 +38,12 @@ from forage_rl.visualization import (
 class ExternalRecoveryRunResult:
     run: CombinedPerturbationRun
     benchmark_kind: str
+    recovery_granularity: str
     post_episode_indices: list[int]
     absolute_recovery_curve: np.ndarray
     signed_recovery_curve: np.ndarray
+    boundary_window_curve: np.ndarray
+    boundary_window_signed_curve: np.ndarray
     recovery_auc: float
     no_leave_episode_count: int
 
@@ -81,7 +91,11 @@ def _analyze_run(
     run: CombinedPerturbationRun,
     *,
     recovery_window: int,
+    boundary_window: int | None,
+    boundary_window_before: int | None,
+    boundary_window_after: int | None,
     benchmark_mode: str,
+    recovery_granularity: str,
 ) -> ExternalRecoveryRunResult:
     benchmark_kind = (
         run.benchmark_kind
@@ -104,34 +118,128 @@ def _analyze_run(
         benchmark_mode=benchmark_kind,
         benchmark_params=run.benchmark_params,
     )
+    requested_granularity = recovery_granularity
     post_episode_indices, post_episode_trajectories = run.split_post_perturbation_episodes()
-    resolved_states_by_episode = None
-    if not run.observable:
-        resolved_states_by_episode = [
-            infer_hidden_states_for_trajectory(trajectory, maze=benchmark_maze)
-            for trajectory in post_episode_trajectories
-        ]
+    patch_labels = _analysis_patch_labels(run, benchmark_maze)
+    exit_actions = patch_exit_action_indices(benchmark_maze)
+    if requested_granularity == "auto":
+        requested_granularity = "episode" if post_episode_trajectories else "within_episode"
 
-    absolute_curve = recovery_curve_for_episode_sequence(
-        post_episode_trajectories,
-        patch_labels=_analysis_patch_labels(run, benchmark_maze),
-        leave_action=benchmark_maze.action_labels.index("leave"),
-        benchmark_prt_by_state=benchmark_prt_by_state,
-        resolved_states_by_episode=resolved_states_by_episode,
-    )
-    signed_curve = signed_recovery_curve_for_episode_sequence(
-        post_episode_trajectories,
-        patch_labels=_analysis_patch_labels(run, benchmark_maze),
-        leave_action=benchmark_maze.action_labels.index("leave"),
-        benchmark_prt_by_state=benchmark_prt_by_state,
-        resolved_states_by_episode=resolved_states_by_episode,
-    )
+    if requested_granularity == "episode":
+        combined_trajectory = run.load_combined_trajectory()
+        resolved_states = (
+            infer_hidden_states_for_trajectory(combined_trajectory, maze=benchmark_maze)
+            if not run.observable
+            else None
+        )
+        resolved_states_by_episode = None
+        if not run.observable:
+            resolved_states_by_episode = [
+                infer_hidden_states_for_trajectory(trajectory, maze=benchmark_maze)
+                for trajectory in post_episode_trajectories
+            ]
+
+        absolute_curve = recovery_curve_for_episode_sequence(
+            post_episode_trajectories,
+            patch_labels=patch_labels,
+            exit_actions=exit_actions,
+            benchmark_prt_by_state=benchmark_prt_by_state,
+            resolved_states_by_episode=resolved_states_by_episode,
+        )
+        signed_curve = signed_recovery_curve_for_episode_sequence(
+            post_episode_trajectories,
+            patch_labels=patch_labels,
+            exit_actions=exit_actions,
+            benchmark_prt_by_state=benchmark_prt_by_state,
+            resolved_states_by_episode=resolved_states_by_episode,
+        )
+        boundary_window_curve = within_episode_boundary_window_recovery_curve_for_trajectory(
+            combined_trajectory,
+            patch_labels=patch_labels,
+            exit_actions=exit_actions,
+            benchmark_prt_by_state=benchmark_prt_by_state,
+            perturbation_timestep=run.perturbation_timestep,
+            window=boundary_window,
+            window_before=boundary_window_before,
+            window_after=boundary_window_after,
+            resolved_states=resolved_states,
+        )
+        boundary_window_signed_curve = (
+            within_episode_signed_boundary_window_recovery_curve_for_trajectory(
+                combined_trajectory,
+                patch_labels=patch_labels,
+                exit_actions=exit_actions,
+                benchmark_prt_by_state=benchmark_prt_by_state,
+                perturbation_timestep=run.perturbation_timestep,
+                window=boundary_window,
+                window_before=boundary_window_before,
+                window_after=boundary_window_after,
+                resolved_states=resolved_states,
+            )
+        )
+    elif requested_granularity == "within_episode":
+        combined_trajectory = run.load_combined_trajectory()
+        resolved_states = (
+            infer_hidden_states_for_trajectory(combined_trajectory, maze=benchmark_maze)
+            if not run.observable
+            else None
+        )
+        absolute_curve = within_episode_recovery_curve_for_trajectory(
+            combined_trajectory,
+            patch_labels=patch_labels,
+            exit_actions=exit_actions,
+            benchmark_prt_by_state=benchmark_prt_by_state,
+            perturbation_timestep=run.perturbation_timestep,
+            resolved_states=resolved_states,
+        )
+        signed_curve = within_episode_signed_recovery_curve_for_trajectory(
+            combined_trajectory,
+            patch_labels=patch_labels,
+            exit_actions=exit_actions,
+            benchmark_prt_by_state=benchmark_prt_by_state,
+            perturbation_timestep=run.perturbation_timestep,
+            resolved_states=resolved_states,
+        )
+        boundary_window_curve = within_episode_boundary_window_recovery_curve_for_trajectory(
+            combined_trajectory,
+            patch_labels=patch_labels,
+            exit_actions=exit_actions,
+            benchmark_prt_by_state=benchmark_prt_by_state,
+            perturbation_timestep=run.perturbation_timestep,
+            window=boundary_window,
+            window_before=boundary_window_before,
+            window_after=boundary_window_after,
+            resolved_states=resolved_states,
+        )
+        boundary_window_signed_curve = (
+            within_episode_signed_boundary_window_recovery_curve_for_trajectory(
+                combined_trajectory,
+                patch_labels=patch_labels,
+                exit_actions=exit_actions,
+                benchmark_prt_by_state=benchmark_prt_by_state,
+                perturbation_timestep=run.perturbation_timestep,
+                window=boundary_window,
+                window_before=boundary_window_before,
+                window_after=boundary_window_after,
+                resolved_states=resolved_states,
+            )
+        )
+        post_episode_indices = list(range(len(absolute_curve)))
+    else:
+        raise ValueError(
+            f"Unsupported recovery_granularity {requested_granularity!r}. "
+            "Expected 'auto', 'episode', or 'within_episode'."
+        )
+
     return ExternalRecoveryRunResult(
         run=run,
         benchmark_kind=benchmark_kind,
+        recovery_granularity=requested_granularity,
         post_episode_indices=post_episode_indices,
         absolute_recovery_curve=absolute_curve,
         signed_recovery_curve=signed_curve,
+        boundary_window_curve=boundary_window_curve,
+        boundary_window_signed_curve=boundary_window_signed_curve,
         recovery_auc=recovery_auc(absolute_curve, recovery_window),
         no_leave_episode_count=int(np.count_nonzero(~np.isfinite(absolute_curve))),
     )
@@ -142,13 +250,13 @@ def _matches_filter(value: str, selected: set[str] | None) -> bool:
 
 
 def _print_group_summary(
-    condition_key: tuple[str, bool, str, str, str],
+    condition_key: tuple[str, bool, str, str, str, str],
     results: list[ExternalRecoveryRunResult],
 ) -> None:
-    maze_name, observable, perturbation_kind, perturbation_id, benchmark_kind = condition_key
+    maze_name, observable, perturbation_kind, perturbation_id, benchmark_kind, recovery_granularity = condition_key
     print(
         f"[{maze_name} {'FO' if observable else 'PO'} {perturbation_kind}/{perturbation_id}] "
-        f"runs={len(results)} benchmark={benchmark_kind}"
+        f"runs={len(results)} benchmark={benchmark_kind} granularity={recovery_granularity}"
     )
     no_leave_by_agent: dict[str, int] = defaultdict(int)
     for result in results:
@@ -165,13 +273,38 @@ def run_external_perturbation_analysis(
     perturbation_kind_filter: set[str] | None = None,
     agent_filter: set[str] | None = None,
     recovery_window: int = 100,
+    boundary_window: int = 100,
+    boundary_window_before: int | None = None,
+    boundary_window_after: int | None = None,
     benchmark_mode: str = "auto",
+    recovery_granularity: str = "auto",
     save: bool = False,
     show: bool = False,
-) -> dict[tuple[str, bool, str, str, str], list[ExternalRecoveryRunResult]]:
+) -> dict[tuple[str, bool, str, str, str, str], list[ExternalRecoveryRunResult]]:
     """Analyze external perturbation trajectories and optionally plot grouped figures."""
     if recovery_window <= 0:
         raise ValueError(f"recovery_window must be > 0, got {recovery_window}")
+    if boundary_window_before is None and boundary_window_after is None:
+        if boundary_window <= 0:
+            raise ValueError(f"boundary_window must be > 0, got {boundary_window}")
+    elif boundary_window_before is None or boundary_window_after is None:
+        raise ValueError(
+            "boundary_window_before and boundary_window_after must be provided together."
+        )
+    elif boundary_window_before <= 0 or boundary_window_after <= 0:
+        raise ValueError(
+            "boundary_window_before and boundary_window_after must both be > 0, "
+            f"got {boundary_window_before} and {boundary_window_after}."
+        )
+    if recovery_granularity not in {"auto", "episode", "within_episode"}:
+        raise ValueError(
+            f"recovery_granularity must be one of 'auto', 'episode', or 'within_episode', got {recovery_granularity!r}."
+        )
+    effective_boundary_window = (
+        None
+        if boundary_window_before is not None and boundary_window_after is not None
+        else boundary_window
+    )
 
     manifest_runs = load_combined_perturbation_runs(input_manifest)
     selected_runs = [
@@ -184,14 +317,18 @@ def run_external_perturbation_analysis(
     ]
 
     grouped_results: dict[
-        tuple[str, bool, str, str, str],
+        tuple[str, bool, str, str, str, str],
         list[ExternalRecoveryRunResult],
     ] = defaultdict(list)
     for run in selected_runs:
         result = _analyze_run(
             run,
             recovery_window=recovery_window,
+            boundary_window=effective_boundary_window,
+            boundary_window_before=boundary_window_before,
+            boundary_window_after=boundary_window_after,
             benchmark_mode=benchmark_mode,
+            recovery_granularity=recovery_granularity,
         )
         grouped_results[
             (
@@ -200,18 +337,23 @@ def run_external_perturbation_analysis(
                 run.perturbation_kind,
                 run.perturbation_id,
                 result.benchmark_kind,
+                result.recovery_granularity,
             )
         ].append(result)
 
     for condition_key, results in sorted(grouped_results.items()):
-        maze_name, observable, perturbation_kind, perturbation_id, benchmark_kind = condition_key
+        maze_name, observable, perturbation_kind, perturbation_id, benchmark_kind, result_granularity = condition_key
         curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
         signed_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
+        boundary_window_signed_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
         aucs_by_policy: dict[PolicySpec | str, list[float]] = defaultdict(list)
         for result in results:
             policy = _manifest_policy(result.run)
             curves_by_policy[policy].append(result.absolute_recovery_curve)
             signed_curves_by_policy[policy].append(result.signed_recovery_curve)
+            boundary_window_signed_curves_by_policy[policy].append(
+                result.boundary_window_signed_curve
+            )
             aucs_by_policy[policy].append(result.recovery_auc)
 
         perturbation_label = (
@@ -220,12 +362,13 @@ def run_external_perturbation_analysis(
             else perturbation_kind
         )
         benchmark_label = _benchmark_label(benchmark_kind, observable)
-        condition_label = (
-            f"{perturbation_kind}, {perturbation_id}"
-            if perturbation_id
-            else perturbation_kind
+        condition_label = _display_condition_label(perturbation_kind)
+        filename_suffix = f"{benchmark_kind}_{result_granularity}"
+        x_label = (
+            "Post-Perturbation Leave Event"
+            if result_granularity == "within_episode"
+            else "Post-Perturbation Episode"
         )
-        filename_suffix = benchmark_kind
 
         plot_recovery_curve_comparison(
             curves_by_policy,
@@ -235,6 +378,7 @@ def run_external_perturbation_analysis(
             condition_label=condition_label,
             filename_suffix=filename_suffix,
             benchmark_label=benchmark_label,
+            x_label=x_label,
             save=save,
             show=show,
         )
@@ -246,6 +390,7 @@ def run_external_perturbation_analysis(
             condition_label=condition_label,
             filename_suffix=filename_suffix,
             benchmark_label=benchmark_label,
+            x_label=x_label,
             save=save,
             show=show,
         )
@@ -260,6 +405,32 @@ def run_external_perturbation_analysis(
             save=save,
             show=show,
         )
+        plot_boundary_window_recovery_comparison(
+            boundary_window_signed_curves_by_policy,
+            boundary_window=effective_boundary_window,
+            boundary_window_before=boundary_window_before,
+            boundary_window_after=boundary_window_after,
+            maze_name=maze_name,
+            observable=observable,
+            perturbation_label=perturbation_label,
+            condition_label=condition_label,
+            filename_suffix=filename_suffix,
+            benchmark_label=benchmark_label,
+            save=save,
+            show=show,
+        )
+        if result_granularity == "within_episode":
+            plot_visit_index_recovery_comparison(
+                curves_by_policy,
+                maze_name=maze_name,
+                observable=observable,
+                perturbation_label=perturbation_label,
+                condition_label=condition_label,
+                filename_suffix=filename_suffix,
+                benchmark_label=benchmark_label,
+                save=save,
+                show=show,
+            )
         _print_group_summary(condition_key, results)
 
     return dict(grouped_results)
@@ -277,6 +448,10 @@ def _parse_observability_filter(value: str) -> set[bool] | None:
     if value == "fo":
         return {True}
     return {False}
+
+
+def _display_condition_label(perturbation_kind: str) -> str:
+    return perturbation_kind.replace("_", " ")
 
 
 def main() -> None:
@@ -315,10 +490,38 @@ def main() -> None:
         help="Number of post-perturbation episodes to include in AUC.",
     )
     parser.add_argument(
+        "--boundary-window",
+        type=int,
+        default=100,
+        help="Number of transitions before and after perturbation for the centered boundary plot.",
+    )
+    parser.add_argument(
+        "--boundary-window-before",
+        type=int,
+        default=None,
+        help="Optional number of transitions before perturbation for the centered boundary plot.",
+    )
+    parser.add_argument(
+        "--boundary-window-after",
+        type=int,
+        default=None,
+        help="Optional number of transitions after perturbation for the centered boundary plot.",
+    )
+    parser.add_argument(
         "--benchmark-mode",
         choices=["auto", "true_mvt", "fo_oracle"],
         default="auto",
         help="Benchmark mode override. Default resolves by maze family.",
+    )
+    parser.add_argument(
+        "--recovery-granularity",
+        choices=["auto", "episode", "within_episode"],
+        default="auto",
+        help=(
+            "Recovery unit for plotting/AUC. 'episode' uses full post-perturbation episodes; "
+            "'within_episode' uses complete post-perturbation leave events inside a mixed episode; "
+            "'auto' falls back to within-episode when no full post-perturbation episodes exist."
+        ),
     )
     parser.add_argument("--save", action="store_true", help="Save figures to disk.")
     parser.add_argument("--show", action="store_true", help="Display figures interactively.")
@@ -331,7 +534,11 @@ def main() -> None:
         perturbation_kind_filter=_parse_optional_set(args.perturbation_kind),
         agent_filter=_parse_optional_set(args.agents),
         recovery_window=args.recovery_window,
+        boundary_window=args.boundary_window,
+        boundary_window_before=args.boundary_window_before,
+        boundary_window_after=args.boundary_window_after,
         benchmark_mode=args.benchmark_mode,
+        recovery_granularity=args.recovery_granularity,
         save=args.save,
         show=args.show,
     )

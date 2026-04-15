@@ -23,10 +23,9 @@ from forage_rl.environments import (
     resolve_effective_horizon,
 )
 from forage_rl.experiments.parallel import (
+    build_torch_batches,
     is_neural_agent,
     resolve_execution_strategy,
-    split_torch_items,
-    uses_torch_agents,
 )
 from forage_rl.utils import (
     list_run_dataset_run_ids,
@@ -403,14 +402,7 @@ def run_inference_experiment(
     ensure_directories()
 
     normalized_compare_to = [_normalize_evaluator(item) for item in compare_to]
-    cpu_evaluators, neural_evaluators = split_torch_items(normalized_compare_to)
-    if uses_torch_agents(normalized_compare_to):
-        evaluator_batches: list[tuple[list[EvaluatorSpec], bool, str]] = [
-            (cpu_evaluators, False, "CPU-only"),
-            (neural_evaluators, True, "neural"),
-        ]
-    else:
-        evaluator_batches = [(cpu_evaluators, False, "CPU-only")]
+    evaluator_batches = build_torch_batches(normalized_compare_to, device=device)
 
     total_task_count = 0
     reported_missing_sources: set[Agent] = set()

@@ -25,6 +25,7 @@ from typing import Callable
 import numpy as np
 
 from forage_rl.agents.value_iteration import ValueIterationSolver
+from forage_rl.analysis.action_semantics import patch_exit_action_indices
 from forage_rl.environments import Maze, load_builtin_maze_spec
 
 
@@ -97,11 +98,20 @@ def oracle_optimal_dwell_by_state(
     """
     maze = Maze(load_builtin_maze_spec(maze_name), seed=0, horizon=horizon)
     _, policy = ValueIterationSolver(maze).solve(verbose=False)
-    leave_action = maze.action_labels.index("leave")
+    stay_action = maze.action_labels.index("stay")
+    exit_actions = patch_exit_action_indices(maze)
 
     optimal_dwell_by_state: dict[int, int] = {}
     for state in range(maze.num_states):
-        leave_times = np.flatnonzero(policy[state] == leave_action)
+        valid_actions = maze.valid_actions(state)
+        if stay_action not in valid_actions:
+            continue
+        state_exit_actions = tuple(
+            action for action in valid_actions if action in exit_actions and action != stay_action
+        )
+        if not state_exit_actions:
+            continue
+        leave_times = np.flatnonzero(np.isin(policy[state], state_exit_actions))
         optimal_dwell_by_state[state] = (
             int(leave_times[0]) + 1 if leave_times.size > 0 else horizon
         )
@@ -159,7 +169,6 @@ def infer_hidden_states_for_trajectory(
         state_spec.id: state_spec.observation_group
         for state_spec in maze.maze_spec.states
     }
-    leave_action = maze.action_labels.index("leave")
     inferred_states = [maze.initial_state] * len(transitions)
 
     initial_observation = int(transitions[0].state)
@@ -193,8 +202,7 @@ def infer_hidden_states_for_trajectory(
         for step in range(visit_start, visit_end + 1):
             transition = transitions[step]
             if (
-                int(transition.action) == leave_action
-                or int(transition.next_state) != current_observation
+                int(transition.next_state) != current_observation
             ):
                 continue
             for state in weighted_posterior:
@@ -217,12 +225,15 @@ def infer_hidden_states_for_trajectory(
             break
 
         next_observation = int(final_transition.next_state)
+        chosen_action = int(final_transition.action)
         next_candidates = observation_group_to_states[next_observation]
         next_posterior = {state: 0.0 for state in next_candidates}
         for state, probability in posterior.items():
+            if chosen_action not in maze.valid_actions(state):
+                continue
             for next_state, transition_probability in maze.transition_distribution(
                 state,
-                leave_action,
+                chosen_action,
             ):
                 if next_state in next_posterior:
                     next_posterior[next_state] += probability * transition_probability
@@ -360,7 +371,20 @@ def normalized_curve_auc(curve: np.ndarray) -> float:
 
 def aggregate_curves(curves: list[np.ndarray]) -> CurveSummary:
     """Aggregate aligned curves with NaN-aware mean/std at each x position."""
-    stacked = np.stack(curves)
+    if not curves:
+        empty = np.array([], dtype=float)
+        return CurveSummary(x=np.array([], dtype=int), mean=empty, std=empty)
+
+    max_len = max(len(curve) for curve in curves)
+    if max_len == 0:
+        empty = np.array([], dtype=float)
+        return CurveSummary(x=np.array([], dtype=int), mean=empty, std=empty)
+
+    stacked = np.full((len(curves), max_len), np.nan, dtype=float)
+    for row_index, curve in enumerate(curves):
+        if len(curve) == 0:
+            continue
+        stacked[row_index, : len(curve)] = np.asarray(curve, dtype=float)
     x = np.arange(stacked.shape[1], dtype=int)
     mean = np.full(stacked.shape[1], np.nan, dtype=float)
     std = np.full(stacked.shape[1], np.nan, dtype=float)
