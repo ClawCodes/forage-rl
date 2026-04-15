@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from forage_rl import RunDataset, Trajectory
-from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec
+from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec, agent_display_label
 from forage_rl.analysis.patch_timing import (
     aggregate_curves,
     extract_decision_rows,
@@ -33,12 +34,14 @@ EvaluatorInput = Agent | EvaluatorSpec
 
 
 def _normalize_policy(policy: PolicyInput) -> PolicySpec:
+    if isinstance(policy, PolicySpec):
+        return policy
+    if isinstance(policy, Agent):
+        return PolicySpec(agent=policy)
     if isinstance(policy, str):
         raise ValueError(
             "String policy labels are supported only for recovery plotting helpers."
         )
-    if isinstance(policy, PolicySpec):
-        return policy
     return PolicySpec(agent=policy)
 
 
@@ -449,6 +452,7 @@ def plot_mean_trajectory_stats(
     show: bool = True,
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
+    filepath: Path | None = None,
 ):
     fig, (ax_reward, ax_residency) = plt.subplots(
         1, 2, figsize=(14, 5), constrained_layout=True
@@ -464,10 +468,11 @@ def plot_mean_trajectory_stats(
         fontweight="bold",
     )
 
-    filename = f"mean_trajectory_stats_{_policy_artifact_label(source)}_{maze.maze_spec.maze.name}_{_obs_tag(maze.observable)}"
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = f"mean_trajectory_stats_{_policy_artifact_label(source)}_{maze.maze_spec.maze.name}_{_obs_tag(maze.observable)}"
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -484,6 +489,7 @@ def plot_aggregate_trajectory_stats(
     benchmark_label: str | None = None,
     benchmark_note: str | None = None,
     horizon: int | None = None,
+    filepath: Path | None = None,
 ) -> None:
     del benchmark_note
     source_spec = _normalize_policy(source)
@@ -527,6 +533,7 @@ def plot_aggregate_trajectory_stats(
         show=show,
         filename_suffix=filename_suffix,
         benchmark_label=benchmark_label,
+        filepath=filepath,
     )
 
 
@@ -540,6 +547,7 @@ def plot_episode_return_comparison(
     benchmark_label: str | None = None,
     benchmark_note: str | None = None,
     horizon: int | None = None,
+    filepath: Path | None = None,
 ):
     del benchmark_note
     policies = [_normalize_policy(agent) for agent in (agents or list(Agent))]
@@ -599,10 +607,11 @@ def plot_episode_return_comparison(
     if plotted_any:
         ax.legend(fontsize=10)
 
-    filename = f"episode_return_comparison_{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = f"episode_return_comparison_{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -648,6 +657,7 @@ def plot_patch_timing_summary(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
     horizon: int | None = None,
+    filepath: Path | None = None,
 ):
     source_spec = _normalize_policy(source)
     selected_run_ids = (
@@ -800,13 +810,14 @@ def plot_patch_timing_summary(
         fontweight="bold",
     )
 
-    filename = (
-        f"patch_timing_{_policy_artifact_label(source_spec)}_"
-        f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
-    )
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = (
+            f"patch_timing_{_policy_artifact_label(source_spec)}_"
+            f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+        )
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -981,6 +992,7 @@ def plot_aggregate_comparison(
     benchmark_label: str | None = None,
     benchmark_note: str | None = None,
     horizon: int | None = None,
+    filepath: Path | None = None,
 ):
     del benchmark_note
     fig, (ax_bars, ax_lines) = plt.subplots(
@@ -1014,16 +1026,17 @@ def plot_aggregate_comparison(
         fontweight="bold",
     )
 
-    comparisons = (
-        "_".join([_evaluator_label(evaluator) for evaluator in compare_to]) or "none"
-    )
-    filename = (
-        f"agg_compare_{_policy_artifact_label(source)}_to_{comparisons}_"
-        f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
-    )
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        comparisons = (
+            "_".join([_evaluator_label(evaluator) for evaluator in compare_to]) or "none"
+        )
+        filename = (
+            f"agg_compare_{_policy_artifact_label(source)}_to_{comparisons}_"
+            f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
+        )
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -1085,6 +1098,7 @@ def plot_recovery_curve_comparison(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
     x_label: str = "Post-Perturbation Episode",
+    filepath: Path | None = None,
 ):
     """Plot mean absolute recovery curves with run-level variability."""
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
@@ -1128,10 +1142,11 @@ def plot_recovery_curve_comparison(
         fontsize=14,
     )
 
-    filename = f"recovery_curve_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = f"recovery_curve_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -1148,6 +1163,7 @@ def plot_signed_recovery_curve_comparison(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
     x_label: str = "Post-Perturbation Episode",
+    filepath: Path | None = None,
 ):
     """Plot mean signed recovery curves to distinguish under- and over-stay."""
     fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
@@ -1192,10 +1208,11 @@ def plot_signed_recovery_curve_comparison(
         fontsize=14,
     )
 
-    filename = f"signed_recovery_curve_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = f"signed_recovery_curve_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
@@ -1409,5 +1426,137 @@ def plot_visit_index_recovery_comparison(
     if filename_suffix is not None:
         filename = f"{filename}_{filename_suffix}"
     filepath = FIGURES_DIR / f"{filename}.png"
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def plot_recovery_heatmap(
+    auc_matrix: dict[Agent, dict[str, float]],
+    perturbation_labels: dict[str, str],
+    agent_order: list[Agent],
+    *,
+    observable: bool = True,
+    save: bool = False,
+    show: bool = True,
+    filepath: Path | None = None,
+) -> plt.Figure:
+    """Heatmap: agents (rows, MF→MB top→bottom) × perturbations (cols).
+
+    Cells show mean recovery AUC; high AUC (slow recovery) = red, low = green.
+    NaN cells are shown in grey with 'N/A'.
+    """
+    col_keys = list(perturbation_labels.keys())
+    n_rows = len(agent_order)
+    n_cols = len(col_keys)
+
+    data = np.full((n_rows, n_cols), np.nan)
+    for r, agent in enumerate(agent_order):
+        for c, maze in enumerate(col_keys):
+            val = auc_matrix.get(agent, {}).get(maze, np.nan)
+            data[r, c] = val
+
+    fig, ax = plt.subplots(figsize=(max(6, n_cols * 2.2), max(4, n_rows * 0.9 + 1.5)))
+
+    # Build masked array so NaN cells can be coloured separately
+    masked = np.ma.masked_invalid(data)
+    cmap = plt.get_cmap("RdYlGn_r").copy()
+    cmap.set_bad(color="#cccccc")
+
+    vmin = np.nanmin(data) if not np.all(np.isnan(data)) else 0
+    vmax = np.nanmax(data) if not np.all(np.isnan(data)) else 1
+    im = ax.imshow(masked, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
+
+    # Cell annotations
+    for r in range(n_rows):
+        for c in range(n_cols):
+            val = data[r, c]
+            if np.isnan(val):
+                ax.text(c, r, "N/A", ha="center", va="center", fontsize=9, color="#666666")
+            else:
+                ax.text(c, r, f"{val:.2f}", ha="center", va="center", fontsize=9,
+                        color="black", fontweight="bold")
+
+    ax.set_xticks(range(n_cols))
+    ax.set_xticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels([agent_display_label(a) for a in agent_order], fontsize=11)
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label("Mean Recovery AUC (lower = faster)", fontsize=10)
+
+    obs_tag = "FO" if observable else "PO"
+    ax.set_title(f"Recovery AUC Heatmap ({obs_tag})", fontsize=13, fontweight="bold")
+
+    fig.tight_layout()
+
+    if filepath is None:
+        ensure_directories()
+        filepath = FIGURES_DIR / f"recovery_heatmap_{obs_tag.lower()}.png"
+
+    _finalize_figure(fig, save=save, show=show, filepath=filepath)
+    return fig
+
+
+def plot_recovery_heatmap_delta(
+    auc_fo: dict[Agent, dict[str, float]],
+    auc_po: dict[Agent, dict[str, float]],
+    perturbation_labels: dict[str, str],
+    agent_order: list[Agent],
+    *,
+    save: bool = False,
+    show: bool = True,
+    filepath: Path | None = None,
+) -> plt.Figure:
+    """Heatmap of AUC(PO) − AUC(FO): positive = PO hurts recovery more.
+
+    Uses a coolwarm colormap centred at 0.
+    """
+    col_keys = list(perturbation_labels.keys())
+    n_rows = len(agent_order)
+    n_cols = len(col_keys)
+
+    delta = np.full((n_rows, n_cols), np.nan)
+    for r, agent in enumerate(agent_order):
+        for c, maze in enumerate(col_keys):
+            fo_val = auc_fo.get(agent, {}).get(maze, np.nan)
+            po_val = auc_po.get(agent, {}).get(maze, np.nan)
+            if not (np.isnan(fo_val) or np.isnan(po_val)):
+                delta[r, c] = po_val - fo_val
+
+    fig, ax = plt.subplots(figsize=(max(6, n_cols * 2.2), max(4, n_rows * 0.9 + 1.5)))
+
+    masked = np.ma.masked_invalid(delta)
+    cmap = plt.get_cmap("coolwarm").copy()
+    cmap.set_bad(color="#cccccc")
+
+    abs_max = np.nanmax(np.abs(delta)) if not np.all(np.isnan(delta)) else 1.0
+    im = ax.imshow(masked, cmap=cmap, aspect="auto", vmin=-abs_max, vmax=abs_max)
+
+    for r in range(n_rows):
+        for c in range(n_cols):
+            val = delta[r, c]
+            if np.isnan(val):
+                ax.text(c, r, "N/A", ha="center", va="center", fontsize=9, color="#666666")
+            else:
+                sign = "+" if val >= 0 else ""
+                ax.text(c, r, f"{sign}{val:.2f}", ha="center", va="center", fontsize=9,
+                        color="black", fontweight="bold")
+
+    ax.set_xticks(range(n_cols))
+    ax.set_xticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels([agent_display_label(a) for a in agent_order], fontsize=11)
+
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+    cbar.set_label("AUC(PO) − AUC(FO)  (positive = PO hurts more)", fontsize=10)
+
+    ax.set_title("Observability Impact: AUC(PO) − AUC(FO)", fontsize=13, fontweight="bold")
+
+    fig.tight_layout()
+
+    if filepath is None:
+        ensure_directories()
+        filepath = FIGURES_DIR / "recovery_heatmap_fo_po_delta.png"
+
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig

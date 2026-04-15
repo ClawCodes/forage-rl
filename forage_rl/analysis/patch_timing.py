@@ -345,6 +345,8 @@ def oracle_residency_deviation_by_patch(
     for row in rows:
         if row.action != leave_action:
             continue
+        if row.state not in optimal_dwell_by_state:
+            continue
         actual_dwell = row.time_spent + 1
         optimal_dwell = optimal_dwell_by_state[row.state]
         deviations.setdefault(row.patch_label, []).append(actual_dwell - optimal_dwell)
