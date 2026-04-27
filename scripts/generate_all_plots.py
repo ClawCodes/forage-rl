@@ -25,6 +25,7 @@ from forage_rl.analysis import (
     patch_exit_action_indices,
     recovery_auc,
     resolve_patch_benchmark_prt,
+    within_episode_boundary_window_recovery_curve_for_trajectory,
     within_episode_recovery_curve_for_trajectory,
     within_episode_signed_recovery_curve_for_trajectory,
 )
@@ -35,6 +36,7 @@ from forage_rl.utils import list_run_dataset_run_ids, load_run_dataset
 from forage_rl.visualization import (
     plot_aggregate_comparison,
     plot_aggregate_trajectory_stats,
+    plot_boundary_window_recovery_comparison,
     plot_episode_return_comparison,
     plot_patch_timing_summary,
     plot_recovery_curve_comparison,
@@ -62,6 +64,10 @@ NEURAL_POLICIES: list[PolicySpec] = [
     PolicySpec(agent=Agent.GRU, context_mode="prev_reward"),
     PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
 ]
+
+PERTURBATION_SINGLE_POLICY = PolicySpec(
+    agent=Agent.GRU, context_mode="prev_reward"
+)
 
 PLOTTED_POLICIES: list[Agent | PolicySpec] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
 
@@ -98,6 +104,9 @@ def _make_dirs() -> dict[str, Path]:
         "comparisons_po": FIGURES_DIR / "04_comparisons" / "PO",
         "patch_timing": FIGURES_DIR / "05_patch_timing",
         "single": FIGURES_DIR / "06_single",
+        "new": FIGURES_DIR / "07_new",
+        "average": FIGURES_DIR / "08_folder",
+        "perbsingle": FIGURES_DIR / "09_perbsingle",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
@@ -248,6 +257,54 @@ def _compute_signed_recovery_curves(
                 exit_actions=exit_actions,
                 benchmark_prt_by_state=benchmark_prt,
                 perturbation_timestep=perturbation_t,
+            )
+            agent_curves.append(curve)
+        if agent_curves:
+            curves_by_agent[agent] = agent_curves
+    return curves_by_agent
+
+
+def _compute_boundary_window_curves(
+    agents: list[Agent | PolicySpec],
+    maze_name: str,
+    observable: bool,
+    *,
+    horizon: int = HORIZON,
+    perturbation_t: int = PERTURBATION_T,
+    boundary_window: int = 100,
+) -> dict[Agent | PolicySpec, list[np.ndarray]]:
+    """Load saved runs and compute before/after boundary-window curves per run."""
+    maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
+    patch_labels = _build_patch_labels(maze_name, observable)
+    exit_actions = patch_exit_action_indices(maze)
+    benchmark_prt = resolve_patch_benchmark_prt(
+        maze_name=BASELINE_MAZE, observable=True, horizon=horizon
+    )
+
+    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
+    for agent in agents:
+        run_ids = _run_ids_for(agent, maze_name, observable, horizon=horizon)
+        if not run_ids:
+            print(
+                f"  [SKIP] No boundary-window data: {_policy_display_label(agent)} / "
+                f"{maze_name} / {'FO' if observable else 'PO'}"
+            )
+            continue
+        agent_curves: list[np.ndarray] = []
+        for run_id in run_ids:
+            run_dataset = _load_run_dataset_for(
+                agent, run_id, maze_name, observable, horizon=horizon
+            )
+            from forage_rl import Trajectory
+
+            combined = Trajectory(transitions=list(run_dataset.iter_transitions()))
+            curve = within_episode_boundary_window_recovery_curve_for_trajectory(
+                combined,
+                patch_labels=patch_labels,
+                exit_actions=exit_actions,
+                benchmark_prt_by_state=benchmark_prt,
+                perturbation_timestep=perturbation_t,
+                window=boundary_window,
             )
             agent_curves.append(curve)
         if agent_curves:
@@ -530,6 +587,142 @@ def section_6_single_run_stats(dirs: dict[str, Path], show: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Section 7 — Boundary-window bars
+# ---------------------------------------------------------------------------
+
+
+def section_7_boundary_window_bars(dirs: dict[str, Path], show: bool) -> None:
+    print("\n=== Section 7: Boundary-window before/after bars ===")
+    boundary_window = 100
+    out_dir = dirs["new"]
+    for observable in OBSERVABILITY_CONDITIONS:
+        obs_tag = "FO" if observable else "PO"
+        for maze_name in PERTURBATION_MAZES:
+            short = maze_name.replace("full_one_way_perturbed_", "")
+            print(f"  {obs_tag} / {short}")
+            curves = _compute_boundary_window_curves(
+                PLOTTED_POLICIES,
+                maze_name,
+                observable,
+                boundary_window=boundary_window,
+            )
+            if not curves:
+                print("    [SKIP] No boundary-window data")
+                continue
+
+            fp = out_dir / f"boundary_window_{short}_{obs_tag}.png"
+            plot_boundary_window_recovery_comparison(
+                curves,
+                boundary_window=boundary_window,
+                maze_name=maze_name,
+                observable=observable,
+                perturbation_label=short,
+                save=True,
+                show=show,
+                filepath=fp,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Section 8 — Boundary-window averages
+# ---------------------------------------------------------------------------
+
+
+def section_8_boundary_window_averages(dirs: dict[str, Path], show: bool) -> None:
+    print("\n=== Section 8: Boundary-window average bars ===")
+    boundary_window = 100
+    out_dir = dirs["average"]
+    for observable in OBSERVABILITY_CONDITIONS:
+        obs_tag = "FO" if observable else "PO"
+        for maze_name in PERTURBATION_MAZES:
+            short = maze_name.replace("full_one_way_perturbed_", "")
+            print(f"  {obs_tag} / {short}")
+            curves = _compute_boundary_window_curves(
+                PLOTTED_POLICIES,
+                maze_name,
+                observable,
+                boundary_window=boundary_window,
+            )
+            if not curves:
+                print("    [SKIP] No boundary-window data")
+                continue
+
+            fp = out_dir / f"boundary_window_average_{short}_{obs_tag}.png"
+            plot_boundary_window_recovery_comparison(
+                curves,
+                boundary_window=boundary_window,
+                maze_name=maze_name,
+                observable=observable,
+                perturbation_label=short,
+                save=True,
+                show=show,
+                filepath=fp,
+                metric="average",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Section 9 — Perturbation single-run GRU PO
+# ---------------------------------------------------------------------------
+
+
+def section_9_perturbation_single_run_gru_po(
+    dirs: dict[str, Path], show: bool
+) -> None:
+    print("\n=== Section 9: Perturbation single-run GRU PO ===")
+    out_dir = dirs["perbsingle"]
+    observable = False
+    obs_tag = "PO"
+
+    baseline_run_ids = _run_ids_for(
+        PERTURBATION_SINGLE_POLICY,
+        BASELINE_MAZE,
+        observable,
+        horizon=HORIZON,
+    )
+    if not baseline_run_ids:
+        print(f"  [SKIP] No data: GRU {obs_tag} / one_way")
+    else:
+        baseline_fp = out_dir / f"perbsingle_gru_one_way_{obs_tag}.png"
+        print(f"  GRU {obs_tag} / one_way")
+        plot_single_run_stats(
+            PERTURBATION_SINGLE_POLICY,
+            BASELINE_MAZE,
+            observable=observable,
+            run_id=baseline_run_ids[0],
+            horizon=HORIZON,
+            save=True,
+            show=show,
+            filepath=baseline_fp,
+        )
+
+    for maze_name in PERTURBATION_MAZES:
+        short = maze_name.replace("full_one_way_perturbed_", "")
+        run_ids = _run_ids_for(
+            PERTURBATION_SINGLE_POLICY,
+            maze_name,
+            observable,
+            horizon=HORIZON,
+        )
+        if not run_ids:
+            print(f"  [SKIP] No data: GRU {obs_tag} / {short}")
+            continue
+
+        fp = out_dir / f"perbsingle_gru_{short}_{obs_tag}.png"
+        print(f"  GRU {obs_tag} / {short}")
+        plot_single_run_stats(
+            PERTURBATION_SINGLE_POLICY,
+            maze_name,
+            observable=observable,
+            run_id=run_ids[0],
+            horizon=HORIZON,
+            save=True,
+            show=show,
+            filepath=fp,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -559,6 +752,9 @@ def main() -> None:
     section_4_comparisons(dirs, show=args.show)
     section_5_patch_timing(dirs, show=args.show)
     section_6_single_run_stats(dirs, show=args.show)
+    section_7_boundary_window_bars(dirs, show=args.show)
+    section_8_boundary_window_averages(dirs, show=args.show)
+    section_9_perturbation_single_run_gru_po(dirs, show=args.show)
 
     print("\nDone. Figures saved under:", FIGURES_DIR)
 
