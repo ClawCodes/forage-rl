@@ -61,6 +61,10 @@ def extract_run_id(filepath: Path) -> int:
     return int(match.group(1))
 
 
+def is_canonical_run_dataset_file(path: Path) -> bool:
+    return re.search(r"_run_dataset_\d+\.npz$", path.name) is not None
+
+
 def matches_exact_horizon_prefix(
     path: Path,
     prefix: str,

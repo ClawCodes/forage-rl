@@ -1235,9 +1235,15 @@ def plot_boundary_window_recovery_comparison(
     filename_suffix: str | None = None,
     benchmark_label: str | None = None,
     smoothing_window: int = 7,
+    filepath: Path | None = None,
+    metric: str = "cumulative",
 ):
-    """Plot mean dwell deviation before vs after the perturbation boundary."""
+    """Plot boundary-window dwell deviation before vs after the perturbation boundary."""
     del smoothing_window
+    if metric not in {"cumulative", "average"}:
+        raise ValueError(
+            f"metric must be 'cumulative' or 'average', got {metric!r}"
+        )
     resolved_before, resolved_after = _resolve_boundary_plot_windows(
         boundary_window=boundary_window,
         boundary_window_before=boundary_window_before,
@@ -1246,49 +1252,42 @@ def plot_boundary_window_recovery_comparison(
     fig, ax = plt.subplots(figsize=(11, 5.5), constrained_layout=True)
 
     labels: list[str] = []
-    before_means: list[float] = []
-    before_stds: list[float] = []
-    after_means: list[float] = []
-    after_stds: list[float] = []
+    before_totals: list[float] = []
+    after_totals: list[float] = []
     for label, curves in _policy_series_items(curves_by_policy):
         if not curves:
             continue
-        phase_means = np.array(
+        phase_values = np.array(
             [
-                _boundary_window_phase_means(
+                _boundary_window_phase_values(
                     curve,
                     boundary_window_before=resolved_before,
                     boundary_window_after=resolved_after,
+                    metric=metric,
                 )
                 for curve in curves
             ],
             dtype=float,
         )
-        before_values = phase_means[:, 0]
+        before_values = phase_values[:, 0]
         before_values = before_values[np.isfinite(before_values)]
-        after_values = phase_means[:, 1]
+        after_values = phase_values[:, 1]
         after_values = after_values[np.isfinite(after_values)]
         if before_values.size == 0 and after_values.size == 0:
             continue
         labels.append(label)
-        before_means.append(
+        before_totals.append(
             float(np.mean(before_values)) if before_values.size > 0 else float("nan")
         )
-        before_stds.append(
-            float(np.std(before_values)) if before_values.size > 0 else 0.0
-        )
-        after_means.append(
+        after_totals.append(
             float(np.mean(after_values)) if after_values.size > 0 else float("nan")
-        )
-        after_stds.append(
-            float(np.std(after_values)) if after_values.size > 0 else 0.0
         )
 
     if not labels:
         ax.text(
             0.5,
             0.5,
-            "No boundary-window dwell deviations available",
+            f"No {metric} boundary-window dwell deviations available",
             ha="center",
             va="center",
             transform=ax.transAxes,
@@ -1296,30 +1295,24 @@ def plot_boundary_window_recovery_comparison(
     else:
         positions = np.arange(len(labels), dtype=float)
         width = 0.35
-        before_means_arr = np.asarray(before_means, dtype=float)
-        before_stds_arr = np.asarray(before_stds, dtype=float)
-        after_means_arr = np.asarray(after_means, dtype=float)
-        after_stds_arr = np.asarray(after_stds, dtype=float)
+        before_totals_arr = np.asarray(before_totals, dtype=float)
+        after_totals_arr = np.asarray(after_totals, dtype=float)
 
         ax.bar(
             positions - width / 2,
-            before_means_arr,
+            before_totals_arr,
             width,
-            yerr=np.where(np.isfinite(before_means_arr), before_stds_arr, 0.0),
-            capsize=4,
             color="#4c78a8",
             alpha=0.85,
-            label=f"{resolved_before} Steps Before",
+            label=f"{metric.title()} {resolved_before} Steps Before",
         )
         ax.bar(
             positions + width / 2,
-            after_means_arr,
+            after_totals_arr,
             width,
-            yerr=np.where(np.isfinite(after_means_arr), after_stds_arr, 0.0),
-            capsize=4,
             color="#f28e2b",
             alpha=0.85,
-            label=f"{resolved_after} Steps After",
+            label=f"{metric.title()} {resolved_after} Steps After",
         )
         ax.set_xticks(positions)
         ax.set_xticklabels(labels, rotation=20, ha="right")
@@ -1327,29 +1320,31 @@ def plot_boundary_window_recovery_comparison(
 
     ax.axhline(0, color="gray", linestyle="--", alpha=0.8)
     ax.set_xlabel("Policy", fontsize=12)
-    ax.set_ylabel("Average Dwell Deviation", fontsize=12)
+    ax.set_ylabel(f"{metric.title()} Dwell Deviation", fontsize=12)
     title = _figure_title(
-        "Average Dwell Deviation Before vs After Perturbation",
+        f"{metric.title()} Dwell Deviation Before vs After Perturbation",
         benchmark_label,
     )
     context = _recovery_title_context(maze_name, observable, condition_label)
     ax.set_title(f"{title}\n{context}", fontsize=13)
 
-    filename = f"boundary_window_recovery_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
-    if filename_suffix is not None:
-        filename = f"{filename}_{filename_suffix}"
-    filepath = FIGURES_DIR / f"{filename}.png"
+    if filepath is None:
+        filename = f"boundary_window_recovery_comparison_{maze_name}_{_obs_tag(observable)}_{perturbation_label}"
+        if filename_suffix is not None:
+            filename = f"{filename}_{filename_suffix}"
+        filepath = FIGURES_DIR / f"{filename}.png"
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
 
 
-def _boundary_window_phase_means(
+def _boundary_window_phase_values(
     curve: np.ndarray,
     *,
     boundary_window_before: int,
     boundary_window_after: int,
+    metric: str,
 ) -> tuple[float, float]:
-    """Return the mean finite deviation before and after the perturbation step."""
+    """Return finite deviation aggregates before and after the perturbation step."""
     arr = np.asarray(curve, dtype=float)
     expected_length = boundary_window_before + boundary_window_after + 1
     if arr.shape[0] != expected_length:
@@ -1360,7 +1355,18 @@ def _boundary_window_phase_means(
 
     before_values = arr[:boundary_window_before]
     after_values = arr[boundary_window_before + 1 :]
+    if metric == "cumulative":
+        return _finite_sum(before_values), _finite_sum(after_values)
     return _finite_mean(before_values), _finite_mean(after_values)
+
+
+def _finite_sum(values: np.ndarray) -> float:
+    """Return the sum of finite values or NaN when no finite values exist."""
+    arr = np.asarray(values, dtype=float)
+    finite_values = arr[np.isfinite(arr)]
+    if finite_values.size == 0:
+        return float("nan")
+    return float(np.sum(finite_values))
 
 
 def _finite_mean(values: np.ndarray) -> float:
@@ -1471,22 +1477,22 @@ def plot_recovery_heatmap(
     show: bool = True,
     filepath: Path | None = None,
 ) -> plt.Figure:
-    """Heatmap: agents (rows, MF→MB top→bottom) × perturbations (cols).
+    """Heatmap: perturbations (rows) × agents (columns).
 
     Cells show mean recovery AUC; high AUC (slow recovery) = red, low = green.
     NaN cells are shown in grey with 'N/A'.
     """
     col_keys = list(perturbation_labels.keys())
-    n_rows = len(agent_order)
-    n_cols = len(col_keys)
+    n_rows = len(col_keys)
+    n_cols = len(agent_order)
 
     data = np.full((n_rows, n_cols), np.nan)
-    for r, agent in enumerate(agent_order):
-        for c, maze in enumerate(col_keys):
+    for r, maze in enumerate(col_keys):
+        for c, agent in enumerate(agent_order):
             val = auc_matrix.get(agent, {}).get(maze, np.nan)
             data[r, c] = val
 
-    fig, ax = plt.subplots(figsize=(max(6, n_cols * 2.2), max(4, n_rows * 0.9 + 1.5)))
+    fig, ax = plt.subplots(figsize=(max(9, n_cols * 1.3), max(4, n_rows * 1.2 + 1.5)))
 
     # Build masked array so NaN cells can be coloured separately
     masked = np.ma.masked_invalid(data)
@@ -1508,9 +1514,9 @@ def plot_recovery_heatmap(
                         color="black", fontweight="bold")
 
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
+    ax.set_xticklabels([_policy_label(a) for a in agent_order], fontsize=11, rotation=20, ha="right")
     ax.set_yticks(range(n_rows))
-    ax.set_yticklabels([_policy_label(a) for a in agent_order], fontsize=11)
+    ax.set_yticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("Mean Recovery AUC (lower = faster)", fontsize=10)
@@ -1543,18 +1549,18 @@ def plot_recovery_heatmap_delta(
     Uses a coolwarm colormap centred at 0.
     """
     col_keys = list(perturbation_labels.keys())
-    n_rows = len(agent_order)
-    n_cols = len(col_keys)
+    n_rows = len(col_keys)
+    n_cols = len(agent_order)
 
     delta = np.full((n_rows, n_cols), np.nan)
-    for r, agent in enumerate(agent_order):
-        for c, maze in enumerate(col_keys):
+    for r, maze in enumerate(col_keys):
+        for c, agent in enumerate(agent_order):
             fo_val = auc_fo.get(agent, {}).get(maze, np.nan)
             po_val = auc_po.get(agent, {}).get(maze, np.nan)
             if not (np.isnan(fo_val) or np.isnan(po_val)):
                 delta[r, c] = po_val - fo_val
 
-    fig, ax = plt.subplots(figsize=(max(6, n_cols * 2.2), max(4, n_rows * 0.9 + 1.5)))
+    fig, ax = plt.subplots(figsize=(max(9, n_cols * 1.3), max(4, n_rows * 1.2 + 1.5)))
 
     masked = np.ma.masked_invalid(delta)
     cmap = plt.get_cmap("coolwarm").copy()
@@ -1574,9 +1580,9 @@ def plot_recovery_heatmap_delta(
                         color="black", fontweight="bold")
 
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
+    ax.set_xticklabels([_policy_label(a) for a in agent_order], fontsize=11, rotation=20, ha="right")
     ax.set_yticks(range(n_rows))
-    ax.set_yticklabels([_policy_label(a) for a in agent_order], fontsize=11)
+    ax.set_yticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("AUC(PO) − AUC(FO)  (positive = PO hurts more)", fontsize=10)
