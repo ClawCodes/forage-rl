@@ -1,0 +1,9 @@
+{
+  "container_type": "run_dataset",
+  "agent": "q_learning",
+  "maze_name": "simple_perturbed",
+  "observable": true,
+  "horizon": 700,
+  "num_episodes": 1,
+  "num_transitions": 700
+}

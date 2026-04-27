@@ -1,0 +1,9 @@
+{
+  "container_type": "run_dataset",
+  "agent": "sr_mb",
+  "maze_name": "full_one_way_perturbed_latent_learning",
+  "observable": false,
+  "horizon": 1000,
+  "num_episodes": 1,
+  "num_transitions": 1000
+}
