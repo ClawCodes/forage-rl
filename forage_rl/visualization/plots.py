@@ -240,7 +240,7 @@ def _draw_cumulative_accuracy(
             accuracies.append(accuracy)
 
         avg_accuracy = np.mean(accuracies, axis=0)
-        ax.plot(avg_accuracy, linewidth=3, label=evaluator.label)
+        ax.plot(avg_accuracy, linewidth=3, label=f"{source.value} vs. {evaluator.label}")
 
     ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance")
     ax.set_ylim(0.4, 1.0)
@@ -1597,3 +1597,36 @@ def plot_recovery_heatmap_delta(
 
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
+
+
+if __name__ == '__main__':
+
+    plot_aggregate_comparison(
+        Agent.QLearning,
+        [Agent.DQN, Agent.DRQN],
+        maze_name="full_one_way",
+        num_datasets=100,
+        observable=True,
+        save=True,
+        show=True
+    )
+
+    plot_aggregate_comparison(
+        Agent.DQN,
+        [Agent.QLearning, Agent.DRQN],
+        maze_name="full_one_way",
+        num_datasets=100,
+        observable=True,
+        save=True,
+        show=True
+    )
+
+    plot_aggregate_comparison(
+        Agent.DRQN,
+        [Agent.QLearning, Agent.DQN],
+        maze_name="full_one_way",
+        num_datasets=100,
+        observable=True,
+        save=True,
+        show=True
+    )
