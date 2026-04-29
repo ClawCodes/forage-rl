@@ -1597,3 +1597,25 @@ def plot_recovery_heatmap_delta(
 
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
+
+
+if __name__ == '__main__':
+    # plot_aggregate_comparison(
+    #     Agent.QLearning,
+    #     [Agent.DQN],
+    #     maze_name="full_one_way",
+    #     num_datasets=100,
+    #     observable=False,
+    #     save=True,
+    #     show=True
+    # )
+
+    plot_aggregate_comparison(
+        Agent.DQN,
+        [Agent.QLearning],
+        maze_name="full_one_way",
+        num_datasets=100,
+        observable=False,
+        save=True,
+        show=True
+    )

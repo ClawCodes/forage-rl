@@ -403,7 +403,7 @@ def list_run_dataset_files(
         return sorted(
             path
             for path in TRAJECTORIES_DIR.glob(
-                f"{prefix}_{agent_part}_run_dataset_*.npz"
+                f"{prefix}_{agent_part}*_run_dataset_*.npz"
             )
             if is_canonical_run_dataset_file(path)
             if (not exact_prefix)
@@ -415,7 +415,7 @@ def list_run_dataset_files(
         agent_part = (
             f"{candidate.value}{neural_context_suffix(candidate, context_mode)}"
         )
-        pattern = f"{prefix}_{agent_part}_run_dataset_*.npz"
+        pattern = f"{prefix}_{agent_part}*_run_dataset_*.npz"
         paths.update(
             path
             for path in TRAJECTORIES_DIR.glob(pattern)
