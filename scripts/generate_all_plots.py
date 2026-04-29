@@ -115,6 +115,7 @@ def _make_dirs() -> dict[str, Path]:
         "average": FIGURES_DIR / "08_folder",
         "perbsingle": FIGURES_DIR / "09_perbsingle",
         "new_single": FIGURES_DIR / "11_new",
+        "newer_single": FIGURES_DIR / "12_newer",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
@@ -772,6 +773,45 @@ def section_11_revaluation_single_run_stats(
 
 
 # ---------------------------------------------------------------------------
+# Section 12 — Detour single-run trajectory stats
+# ---------------------------------------------------------------------------
+
+
+def section_12_detour_single_run_stats(dirs: dict[str, Path], show: bool) -> None:
+    print("\n=== Section 12: Detour single-run trajectory stats ===")
+    out_dir = dirs["newer_single"]
+    maze_name = "full_one_way_perturbed_detour"
+    short = maze_name.replace("full_one_way_perturbed_", "")
+
+    for observable in OBSERVABILITY_CONDITIONS:
+        obs_tag = "FO" if observable else "PO"
+        for policy in REVALUATION_SINGLE_POLICIES:
+            run_ids = _run_ids_for(policy, maze_name, observable, horizon=HORIZON)
+            if not run_ids:
+                print(
+                    f"  [SKIP] No data: {_policy_display_label(policy)} "
+                    f"{obs_tag} / {short}"
+                )
+                continue
+
+            agent_slug = (
+                policy.artifact_label if isinstance(policy, PolicySpec) else policy.value
+            )
+            fp = out_dir / f"single_run_{short}_{agent_slug}_{obs_tag}.png"
+            print(f"  {_policy_display_label(policy)} {obs_tag} / {short}")
+            plot_single_run_stats(
+                policy,
+                maze_name,
+                observable=observable,
+                run_id=run_ids[0],
+                horizon=HORIZON,
+                save=True,
+                show=show,
+                filepath=fp,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -805,6 +845,7 @@ def main() -> None:
     section_8_boundary_window_averages(dirs, show=args.show)
     section_9_perturbation_single_run_gru_po(dirs, show=args.show)
     section_11_revaluation_single_run_stats(dirs, show=args.show)
+    section_12_detour_single_run_stats(dirs, show=args.show)
 
     print("\nDone. Figures saved under:", FIGURES_DIR)
 
