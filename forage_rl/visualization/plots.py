@@ -1604,7 +1604,7 @@ if __name__ == '__main__':
     plot_aggregate_comparison(
         Agent.QLearning,
         [Agent.DQN, Agent.DRQN],
-        maze_name="full_one_way",
+        maze_name="full_one_way_perturbed_detour",
         num_datasets=100,
         observable=True,
         save=True,
@@ -1614,7 +1614,7 @@ if __name__ == '__main__':
     plot_aggregate_comparison(
         Agent.DQN,
         [Agent.QLearning, Agent.DRQN],
-        maze_name="full_one_way",
+        maze_name="full_one_way_perturbed_detour",
         num_datasets=100,
         observable=True,
         save=True,
@@ -1624,7 +1624,7 @@ if __name__ == '__main__':
     plot_aggregate_comparison(
         Agent.DRQN,
         [Agent.QLearning, Agent.DQN],
-        maze_name="full_one_way",
+        maze_name="full_one_way_perturbed_detour",
         num_datasets=100,
         observable=True,
         save=True,
