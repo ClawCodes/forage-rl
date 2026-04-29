@@ -69,6 +69,13 @@ PERTURBATION_SINGLE_POLICY = PolicySpec(
     agent=Agent.GRU, context_mode="prev_reward"
 )
 
+REVALUATION_SINGLE_POLICIES: list[Agent | PolicySpec] = [
+    Agent.QLearning,
+    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
+    Agent.MBRL,
+    Agent.SRDyna,
+]
+
 PLOTTED_POLICIES: list[Agent | PolicySpec] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
 
 PERTURBATION_MAZES: list[str] = [
@@ -107,6 +114,7 @@ def _make_dirs() -> dict[str, Path]:
         "new": FIGURES_DIR / "07_new",
         "average": FIGURES_DIR / "08_folder",
         "perbsingle": FIGURES_DIR / "09_perbsingle",
+        "new_single": FIGURES_DIR / "11_new",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
@@ -393,7 +401,7 @@ def section_2_recovery_curves(dirs: dict[str, Path], show: bool) -> None:
             )
 
             if not curves:
-                print(f"    [SKIP] No recovery data")
+                print("    [SKIP] No recovery data")
                 continue
 
             fp_abs = out_dir / f"recovery_{short}_{obs_tag}.png"
@@ -723,6 +731,47 @@ def section_9_perturbation_single_run_gru_po(
 
 
 # ---------------------------------------------------------------------------
+# Section 11 — Revaluation single-run trajectory stats
+# ---------------------------------------------------------------------------
+
+
+def section_11_revaluation_single_run_stats(
+    dirs: dict[str, Path], show: bool
+) -> None:
+    print("\n=== Section 11: Revaluation single-run trajectory stats ===")
+    out_dir = dirs["new_single"]
+    maze_name = "full_one_way_perturbed_revaluation"
+    short = maze_name.replace("full_one_way_perturbed_", "")
+
+    for observable in OBSERVABILITY_CONDITIONS:
+        obs_tag = "FO" if observable else "PO"
+        for policy in REVALUATION_SINGLE_POLICIES:
+            run_ids = _run_ids_for(policy, maze_name, observable, horizon=HORIZON)
+            if not run_ids:
+                print(
+                    f"  [SKIP] No data: {_policy_display_label(policy)} "
+                    f"{obs_tag} / {short}"
+                )
+                continue
+
+            agent_slug = (
+                policy.artifact_label if isinstance(policy, PolicySpec) else policy.value
+            )
+            fp = out_dir / f"single_run_{short}_{agent_slug}_{obs_tag}.png"
+            print(f"  {_policy_display_label(policy)} {obs_tag} / {short}")
+            plot_single_run_stats(
+                policy,
+                maze_name,
+                observable=observable,
+                run_id=run_ids[0],
+                horizon=HORIZON,
+                save=True,
+                show=show,
+                filepath=fp,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -755,6 +804,7 @@ def main() -> None:
     section_7_boundary_window_bars(dirs, show=args.show)
     section_8_boundary_window_averages(dirs, show=args.show)
     section_9_perturbation_single_run_gru_po(dirs, show=args.show)
+    section_11_revaluation_single_run_stats(dirs, show=args.show)
 
     print("\nDone. Figures saved under:", FIGURES_DIR)
 
