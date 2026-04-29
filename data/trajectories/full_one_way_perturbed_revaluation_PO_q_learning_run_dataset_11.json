@@ -3,7 +3,7 @@
   "agent": "q_learning",
   "maze_name": "full_one_way_perturbed_revaluation",
   "observable": false,
-  "horizon": 700,
+  "horizon": 1000,
   "num_episodes": 1,
-  "num_transitions": 700
+  "num_transitions": 1000
 }
