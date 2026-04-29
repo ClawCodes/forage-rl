@@ -20,18 +20,20 @@ from pathlib import Path
 
 import numpy as np
 
+from forage_rl import Trajectory
 from forage_rl.agents.registry import Agent, PolicySpec, agent_display_label
 from forage_rl.analysis import (
+    oracle_patch_optimal_prt_by_state,
     patch_exit_action_indices,
     recovery_auc,
-    resolve_patch_benchmark_prt,
     within_episode_boundary_window_recovery_curve_for_trajectory,
     within_episode_recovery_curve_for_trajectory,
     within_episode_signed_recovery_curve_for_trajectory,
 )
+from forage_rl.analysis.patch_timing import infer_hidden_states_for_trajectory
 from forage_rl.config import FIGURES_DIR
 from forage_rl.environments import load_builtin_maze_spec
-from forage_rl.environments.maze import maze_from_builtin_maze_spec
+from forage_rl.environments.maze import Maze, maze_from_builtin_maze_spec
 from forage_rl.utils import list_run_dataset_run_ids, load_run_dataset
 from forage_rl.visualization import (
     plot_aggregate_comparison,
@@ -71,12 +73,34 @@ PERTURBATION_SINGLE_POLICY = PolicySpec(
 
 REVALUATION_SINGLE_POLICIES: list[Agent | PolicySpec] = [
     Agent.QLearning,
+    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"),
     PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
     Agent.MBRL,
     Agent.SRDyna,
 ]
 
 PLOTTED_POLICIES: list[Agent | PolicySpec] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
+
+# Heatmaps follow the MF-to-MB taxonomy order used in the manuscript.
+HEATMAP_POLICIES: list[Agent | PolicySpec] = [
+    Agent.QLearning,
+    Agent.DQN,
+    Agent.LSTM,
+    Agent.SRTD,
+    Agent.SRDyna,
+    Agent.SRMB,
+    Agent.MBRL,
+]
+HEATMAP_POLICY_LABELS: dict[Agent | PolicySpec, str] = {
+    Agent.QLearning: "Q-Learning",
+    Agent.DQN: "DQN",
+    Agent.LSTM: "DRQN",
+    Agent.SRTD: "SR-MF (SR-TD)",
+    Agent.SRDyna: "Dyna-Q",
+    Agent.SRMB: "SR-MB",
+    Agent.MBRL: "Model-Based",
+}
+HEATMAP_GROUP_BOUNDARIES: tuple[int, ...] = ()
 
 PERTURBATION_MAZES: list[str] = [
     "full_one_way_perturbed_latent_learning",
@@ -182,6 +206,77 @@ def _load_run_dataset_for(
     return load_run_dataset(policy, run_id, maze_name, observable, horizon=horizon)
 
 
+def _post_perturbation_benchmark_prt(
+    maze_name: str,
+    horizon: int = HORIZON,
+) -> dict[int, int]:
+    """Return the FO oracle PRT benchmark for the post-perturbation maze."""
+    spec = load_builtin_maze_spec(maze_name)
+    if spec.perturbation is not None:
+        spec = spec.perturbed()
+    maze = Maze(spec, seed=0, horizon=horizon, observable=True)
+    return oracle_patch_optimal_prt_by_state(maze)
+
+
+def _flatten_run_dataset(run_dataset) -> Trajectory:
+    return Trajectory(transitions=list(run_dataset.iter_transitions()))
+
+
+def _infer_piecewise_hidden_states(
+    trajectory: Trajectory,
+    maze_name: str,
+    horizon: int,
+    perturbation_t: int,
+) -> list[int]:
+    """Infer PO true states with pre/post maze dynamics split at perturbation_t."""
+    transitions = trajectory.transitions
+    pre_transitions = transitions[:perturbation_t]
+    post_transitions = transitions[perturbation_t:]
+    resolved_states: list[int] = []
+
+    if pre_transitions:
+        pre_maze = maze_from_builtin_maze_spec(
+            maze_name, observable=True, horizon=horizon
+        )
+        resolved_states.extend(
+            infer_hidden_states_for_trajectory(
+                Trajectory(transitions=pre_transitions),
+                maze=pre_maze,
+            )
+        )
+
+    if post_transitions:
+        post_spec = load_builtin_maze_spec(maze_name)
+        if post_spec.perturbation is not None:
+            post_spec = post_spec.perturbed()
+        post_maze = Maze(post_spec, seed=0, horizon=horizon, observable=True)
+        resolved_states.extend(
+            infer_hidden_states_for_trajectory(
+                Trajectory(transitions=post_transitions),
+                maze=post_maze,
+            )
+        )
+
+    return resolved_states
+
+
+def _resolved_states_for_recovery(
+    trajectory: Trajectory,
+    maze_name: str,
+    observable: bool,
+    horizon: int,
+    perturbation_t: int,
+) -> list[int] | None:
+    if observable:
+        return None
+    return _infer_piecewise_hidden_states(
+        trajectory,
+        maze_name=maze_name,
+        horizon=horizon,
+        perturbation_t=perturbation_t,
+    )
+
+
 def _compute_recovery_curves(
     agents: list[Agent | PolicySpec],
     maze_name: str,
@@ -191,15 +286,13 @@ def _compute_recovery_curves(
 ) -> dict[Agent | PolicySpec, list[np.ndarray]]:
     """Load saved runs and compute a within-episode recovery curve per run.
 
-    Benchmark PRTs come from the base (full_one_way) oracle so the recovery
-    curve measures deviation from the pre-perturbation optimum.
+    Benchmark PRTs come from the post-perturbation FO oracle so the recovery
+    curve measures adaptation to the changed environment.
     """
     maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
     patch_labels = _build_patch_labels(maze_name, observable)
     exit_actions = patch_exit_action_indices(maze)
-    benchmark_prt = resolve_patch_benchmark_prt(
-        maze_name=BASELINE_MAZE, observable=True, horizon=horizon
-    )
+    benchmark_prt = _post_perturbation_benchmark_prt(maze_name, horizon=horizon)
 
     curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
     for agent in agents:
@@ -215,16 +308,21 @@ def _compute_recovery_curves(
             run_dataset = _load_run_dataset_for(
                 agent, run_id, maze_name, observable, horizon=horizon
             )
-            # Flatten all episodes in the run into a single trajectory
-            from forage_rl import Trajectory
-
-            combined = Trajectory(transitions=list(run_dataset.iter_transitions()))
+            combined = _flatten_run_dataset(run_dataset)
+            resolved_states = _resolved_states_for_recovery(
+                combined,
+                maze_name=maze_name,
+                observable=observable,
+                horizon=horizon,
+                perturbation_t=perturbation_t,
+            )
             curve = within_episode_recovery_curve_for_trajectory(
                 combined,
                 patch_labels=patch_labels,
                 exit_actions=exit_actions,
                 benchmark_prt_by_state=benchmark_prt,
                 perturbation_timestep=perturbation_t,
+                resolved_states=resolved_states,
             )
             agent_curves.append(curve)
         if agent_curves:
@@ -243,9 +341,7 @@ def _compute_signed_recovery_curves(
     maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
     patch_labels = _build_patch_labels(maze_name, observable)
     exit_actions = patch_exit_action_indices(maze)
-    benchmark_prt = resolve_patch_benchmark_prt(
-        maze_name=BASELINE_MAZE, observable=True, horizon=horizon
-    )
+    benchmark_prt = _post_perturbation_benchmark_prt(maze_name, horizon=horizon)
 
     curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
     for agent in agents:
@@ -257,15 +353,21 @@ def _compute_signed_recovery_curves(
             run_dataset = _load_run_dataset_for(
                 agent, run_id, maze_name, observable, horizon=horizon
             )
-            from forage_rl import Trajectory
-
-            combined = Trajectory(transitions=list(run_dataset.iter_transitions()))
+            combined = _flatten_run_dataset(run_dataset)
+            resolved_states = _resolved_states_for_recovery(
+                combined,
+                maze_name=maze_name,
+                observable=observable,
+                horizon=horizon,
+                perturbation_t=perturbation_t,
+            )
             curve = within_episode_signed_recovery_curve_for_trajectory(
                 combined,
                 patch_labels=patch_labels,
                 exit_actions=exit_actions,
                 benchmark_prt_by_state=benchmark_prt,
                 perturbation_timestep=perturbation_t,
+                resolved_states=resolved_states,
             )
             agent_curves.append(curve)
         if agent_curves:
@@ -286,9 +388,7 @@ def _compute_boundary_window_curves(
     maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
     patch_labels = _build_patch_labels(maze_name, observable)
     exit_actions = patch_exit_action_indices(maze)
-    benchmark_prt = resolve_patch_benchmark_prt(
-        maze_name=BASELINE_MAZE, observable=True, horizon=horizon
-    )
+    benchmark_prt = _post_perturbation_benchmark_prt(maze_name, horizon=horizon)
 
     curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
     for agent in agents:
@@ -304,9 +404,14 @@ def _compute_boundary_window_curves(
             run_dataset = _load_run_dataset_for(
                 agent, run_id, maze_name, observable, horizon=horizon
             )
-            from forage_rl import Trajectory
-
-            combined = Trajectory(transitions=list(run_dataset.iter_transitions()))
+            combined = _flatten_run_dataset(run_dataset)
+            resolved_states = _resolved_states_for_recovery(
+                combined,
+                maze_name=maze_name,
+                observable=observable,
+                horizon=horizon,
+                perturbation_t=perturbation_t,
+            )
             curve = within_episode_boundary_window_recovery_curve_for_trajectory(
                 combined,
                 patch_labels=patch_labels,
@@ -314,6 +419,7 @@ def _compute_boundary_window_curves(
                 benchmark_prt_by_state=benchmark_prt,
                 perturbation_timestep=perturbation_t,
                 window=boundary_window,
+                resolved_states=resolved_states,
             )
             agent_curves.append(curve)
         if agent_curves:
@@ -438,15 +544,15 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     print("\n=== Section 3: Recovery AUC heatmaps ===")
 
     # Collect AUC matrices for FO and PO
-    auc_fo: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in PLOTTED_POLICIES}
-    auc_po: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in PLOTTED_POLICIES}
+    auc_fo: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in HEATMAP_POLICIES}
+    auc_po: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in HEATMAP_POLICIES}
 
     for observable in OBSERVABILITY_CONDITIONS:
         store = auc_fo if observable else auc_po
         for maze_name in PERTURBATION_MAZES:
-            curves = _compute_recovery_curves(PLOTTED_POLICIES, maze_name, observable)
+            curves = _compute_recovery_curves(HEATMAP_POLICIES, maze_name, observable)
             mean_aucs = _mean_auc(curves)
-            for agent in PLOTTED_POLICIES:
+            for agent in HEATMAP_POLICIES:
                 store[agent][maze_name] = mean_aucs.get(agent, float("nan"))
 
     fp_fo = dirs["heatmap"] / "recovery_heatmap_FO.png"
@@ -454,8 +560,10 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     plot_recovery_heatmap(
         auc_fo,
         PERTURBATION_LABELS,
-        PLOTTED_POLICIES,
+        HEATMAP_POLICIES,
         observable=True,
+        agent_labels=HEATMAP_POLICY_LABELS,
+        column_group_boundaries=HEATMAP_GROUP_BOUNDARIES,
         save=True,
         show=show,
         filepath=fp_fo,
@@ -466,8 +574,10 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     plot_recovery_heatmap(
         auc_po,
         PERTURBATION_LABELS,
-        PLOTTED_POLICIES,
+        HEATMAP_POLICIES,
         observable=False,
+        agent_labels=HEATMAP_POLICY_LABELS,
+        column_group_boundaries=HEATMAP_GROUP_BOUNDARIES,
         save=True,
         show=show,
         filepath=fp_po,
@@ -479,7 +589,9 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
         auc_fo,
         auc_po,
         PERTURBATION_LABELS,
-        PLOTTED_POLICIES,
+        HEATMAP_POLICIES,
+        agent_labels=HEATMAP_POLICY_LABELS,
+        column_group_boundaries=HEATMAP_GROUP_BOUNDARIES,
         save=True,
         show=show,
         filepath=fp_delta,
