@@ -1600,11 +1600,10 @@ def plot_recovery_heatmap_delta(
 
 
 if __name__ == '__main__':
-
     plot_aggregate_comparison(
         Agent.QLearning,
-        [Agent.DQN, Agent.DRQN],
-        maze_name="full_one_way_perturbed_detour",
+        [Agent.MBRL, Agent.SRDyna],
+        maze_name="full_one_way",
         num_datasets=100,
         observable=True,
         save=True,
@@ -1612,9 +1611,9 @@ if __name__ == '__main__':
     )
 
     plot_aggregate_comparison(
-        Agent.DQN,
-        [Agent.QLearning, Agent.DRQN],
-        maze_name="full_one_way_perturbed_detour",
+        Agent.MBRL,
+        [Agent.QLearning, Agent.SRDyna],
+        maze_name="full_one_way",
         num_datasets=100,
         observable=True,
         save=True,
@@ -1622,9 +1621,9 @@ if __name__ == '__main__':
     )
 
     plot_aggregate_comparison(
-        Agent.DRQN,
-        [Agent.QLearning, Agent.DQN],
-        maze_name="full_one_way_perturbed_detour",
+        Agent.SRDyna,
+        [Agent.QLearning, Agent.MBRL],
+        maze_name="full_one_way",
         num_datasets=100,
         observable=True,
         save=True,
