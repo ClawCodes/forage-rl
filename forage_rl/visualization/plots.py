@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -240,7 +240,7 @@ def _draw_cumulative_accuracy(
             accuracies.append(accuracy)
 
         avg_accuracy = np.mean(accuracies, axis=0)
-        ax.plot(avg_accuracy, linewidth=3, label=evaluator.label)
+        ax.plot(avg_accuracy, linewidth=3, label=f"{source.value} vs. {evaluator.label}")
 
     ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.7, label="Chance")
     ax.set_ylim(0.4, 1.0)
@@ -1473,6 +1473,8 @@ def plot_recovery_heatmap(
     agent_order: list[PolicyInput],
     *,
     observable: bool = True,
+    agent_labels: dict[PolicyInput, str] | None = None,
+    column_group_boundaries: Sequence[int] = (),
     save: bool = False,
     show: bool = True,
     filepath: Path | None = None,
@@ -1514,9 +1516,18 @@ def plot_recovery_heatmap(
                         color="black", fontweight="bold")
 
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels([_policy_label(a) for a in agent_order], fontsize=11, rotation=20, ha="right")
+    agent_labels = agent_labels or {}
+    ax.set_xticklabels(
+        [agent_labels.get(a, _policy_label(a)) for a in agent_order],
+        fontsize=11,
+        rotation=20,
+        ha="right",
+    )
     ax.set_yticks(range(n_rows))
     ax.set_yticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
+    for boundary in column_group_boundaries:
+        if 0 < boundary < n_cols:
+            ax.axvline(boundary - 0.5, color="white", linewidth=2.5)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("Mean Recovery AUC (lower = faster)", fontsize=10)
@@ -1540,6 +1551,8 @@ def plot_recovery_heatmap_delta(
     perturbation_labels: dict[str, str],
     agent_order: list[PolicyInput],
     *,
+    agent_labels: dict[PolicyInput, str] | None = None,
+    column_group_boundaries: Sequence[int] = (),
     save: bool = False,
     show: bool = True,
     filepath: Path | None = None,
@@ -1580,9 +1593,18 @@ def plot_recovery_heatmap_delta(
                         color="black", fontweight="bold")
 
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels([_policy_label(a) for a in agent_order], fontsize=11, rotation=20, ha="right")
+    agent_labels = agent_labels or {}
+    ax.set_xticklabels(
+        [agent_labels.get(a, _policy_label(a)) for a in agent_order],
+        fontsize=11,
+        rotation=20,
+        ha="right",
+    )
     ax.set_yticks(range(n_rows))
     ax.set_yticklabels([perturbation_labels[k] for k in col_keys], fontsize=11)
+    for boundary in column_group_boundaries:
+        if 0 < boundary < n_cols:
+            ax.axvline(boundary - 0.5, color="white", linewidth=2.5)
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.8)
     cbar.set_label("AUC(PO) − AUC(FO)  (positive = PO hurts more)", fontsize=10)
@@ -1597,3 +1619,36 @@ def plot_recovery_heatmap_delta(
 
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
     return fig
+
+
+if __name__ == '__main__':
+
+    plot_aggregate_comparison(
+        Agent.QLearning,
+        [Agent.DQN, Agent.DRQN],
+        maze_name="full_one_way_perturbed_detour",
+        num_datasets=100,
+        observable=True,
+        save=True,
+        show=True
+    )
+
+    plot_aggregate_comparison(
+        Agent.DQN,
+        [Agent.QLearning, Agent.DRQN],
+        maze_name="full_one_way_perturbed_detour",
+        num_datasets=100,
+        observable=True,
+        save=True,
+        show=True
+    )
+
+    plot_aggregate_comparison(
+        Agent.DRQN,
+        [Agent.QLearning, Agent.DQN],
+        maze_name="full_one_way_perturbed_detour",
+        num_datasets=100,
+        observable=True,
+        save=True,
+        show=True
+    )
