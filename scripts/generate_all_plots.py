@@ -84,8 +84,8 @@ PLOTTED_POLICIES: list[Agent | PolicySpec] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
 # Heatmaps follow the MF-to-MB taxonomy order used in the manuscript.
 HEATMAP_POLICIES: list[Agent | PolicySpec] = [
     Agent.QLearning,
-    Agent.DQN,
-    Agent.LSTM,
+    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"),
+    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
     Agent.SRTD,
     Agent.SRDyna,
     Agent.SRMB,
@@ -93,14 +93,14 @@ HEATMAP_POLICIES: list[Agent | PolicySpec] = [
 ]
 HEATMAP_POLICY_LABELS: dict[Agent | PolicySpec, str] = {
     Agent.QLearning: "Q-Learning",
-    Agent.DQN: "DQN",
-    Agent.LSTM: "DRQN",
+    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"): "DQN",
+    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"): "DRQN",
     Agent.SRTD: "SR-MF (SR-TD)",
     Agent.SRDyna: "Dyna-Q",
     Agent.SRMB: "SR-MB",
     Agent.MBRL: "Model-Based",
 }
-HEATMAP_GROUP_BOUNDARIES: tuple[int, ...] = ()
+HEATMAP_GROUP_BOUNDARIES: tuple[int, ...] = (3, 4, 6)
 
 PERTURBATION_MAZES: list[str] = [
     "full_one_way_perturbed_latent_learning",
