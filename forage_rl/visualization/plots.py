@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from forage_rl.types import RunDataset, Trajectory
-from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec
+from forage_rl.agents.registry import Agent
+from forage_rl.agents.identities import EvaluatorMode, EvaluatorIdentity, PolicyIdentity
 from forage_rl.analysis.patch_timing import (
     aggregate_curves,
     extract_decision_rows,
@@ -28,26 +29,26 @@ from forage_rl.utils import (
     load_run_dataset,
 )
 
-PolicyInput = Agent | PolicySpec | str
-EvaluatorInput = Agent | EvaluatorSpec
+PolicyInput = Agent | PolicyIdentity | str
+EvaluatorInput = Agent | EvaluatorIdentity
 
 
-def _normalize_policy(policy: PolicyInput) -> PolicySpec:
-    if isinstance(policy, PolicySpec):
+def _normalize_policy(policy: PolicyInput) -> PolicyIdentity:
+    if isinstance(policy, PolicyIdentity):
         return policy
     if isinstance(policy, Agent):
-        return PolicySpec(agent=policy)
+        return PolicyIdentity(agent=policy)
     if isinstance(policy, str):
         raise ValueError(
             "String policy labels are supported only for recovery plotting helpers."
         )
-    return PolicySpec(agent=policy)
+    return PolicyIdentity(agent=policy)
 
 
-def _normalize_evaluator(evaluator: EvaluatorInput) -> EvaluatorSpec:
-    if isinstance(evaluator, EvaluatorSpec):
+def _normalize_evaluator(evaluator: EvaluatorInput) -> EvaluatorIdentity:
+    if isinstance(evaluator, EvaluatorIdentity):
         return evaluator
-    return EvaluatorSpec(agent=evaluator, mode="fresh")
+    return EvaluatorIdentity(agent=evaluator, mode=EvaluatorMode.FRESH)
 
 
 def _policy_label(policy: PolicyInput) -> str:
@@ -174,15 +175,15 @@ def _draw_cumulative_accuracy(
     horizon: int | None = None,
 ) -> None:
     """Draw per-evaluator win-rate-over-time lines onto ax."""
-    source_spec = _normalize_policy(source)
+    source_identity = _normalize_policy(source)
     comparisons = [
         _normalize_evaluator(evaluator)
         for evaluator in compare_to
         if _evaluator_label(evaluator)
-        != EvaluatorSpec(
-            agent=source_spec.agent,
-            mode="fresh",
-            context_mode=source_spec.context_mode,
+        != EvaluatorIdentity(
+            agent=source_identity.agent,
+            mode=EvaluatorMode.FRESH,
+            context_mode=source_identity.context_mode,
         ).label
     ]
     if not comparisons:
@@ -191,14 +192,14 @@ def _draw_cumulative_accuracy(
         )
         return
 
-    run_ids = _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+    run_ids = _load_policy_run_ids(source_identity, maze_name, observable, horizon=horizon)
     if num_datasets is not None:
         run_ids = run_ids[:num_datasets]
     if not run_ids:
         ax.text(
             0.5,
             0.5,
-            f"No data for '{_policy_label(source_spec)}'",
+            f"No data for '{_policy_label(source_identity)}'",
             ha="center",
             va="center",
             transform=ax.transAxes,
@@ -209,25 +210,25 @@ def _draw_cumulative_accuracy(
         accuracies = []
         for run_id in run_ids:
             source_cumsum = load_logprobs(
-                source_spec.agent,
-                EvaluatorSpec(
-                    agent=source_spec.agent,
-                    mode="fresh",
-                    context_mode=source_spec.context_mode,
+                source_identity.agent,
+                EvaluatorIdentity(
+                    agent=source_identity.agent,
+                    mode=EvaluatorMode.FRESH,
+                    context_mode=source_identity.context_mode,
                 ),
                 run_id,
                 maze_name,
                 observable,
-                source_context_mode=source_spec.context_mode,
+                source_context_mode=source_identity.context_mode,
                 horizon=horizon,
             )
             eval_cumsum = load_logprobs(
-                source_spec.agent,
+                source_identity.agent,
                 evaluator,
                 run_id,
                 maze_name,
                 observable,
-                source_context_mode=source_spec.context_mode,
+                source_context_mode=source_identity.context_mode,
                 horizon=horizon,
             )
             accuracy = np.where(
@@ -258,15 +259,15 @@ def _draw_model_accuracies(
     horizon: int | None = None,
 ) -> None:
     """Draw paired win-rate bars for source vs each evaluator onto ax."""
-    source_spec = _normalize_policy(source)
+    source_identity = _normalize_policy(source)
     comparisons = [
         _normalize_evaluator(evaluator)
         for evaluator in compare_to
         if _evaluator_label(evaluator)
-        != EvaluatorSpec(
-            agent=source_spec.agent,
-            mode="fresh",
-            context_mode=source_spec.context_mode,
+        != EvaluatorIdentity(
+            agent=source_identity.agent,
+            mode=EvaluatorMode.FRESH,
+            context_mode=source_identity.context_mode,
         ).label
     ]
     if not comparisons:
@@ -275,14 +276,14 @@ def _draw_model_accuracies(
         )
         return
 
-    run_ids = _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+    run_ids = _load_policy_run_ids(source_identity, maze_name, observable, horizon=horizon)
     if num_datasets is not None:
         run_ids = run_ids[:num_datasets]
     if not run_ids:
         ax.text(
             0.5,
             0.5,
-            f"No data for '{_policy_label(source_spec)}'",
+            f"No data for '{_policy_label(source_identity)}'",
             ha="center",
             va="center",
             transform=ax.transAxes,
@@ -290,29 +291,29 @@ def _draw_model_accuracies(
         return
 
     source_wins = {evaluator.label: 0 for evaluator in comparisons}
-    source_self = EvaluatorSpec(
-        agent=source_spec.agent,
-        mode="fresh",
-        context_mode=source_spec.context_mode,
+    source_self = EvaluatorIdentity(
+        agent=source_identity.agent,
+        mode=EvaluatorMode.FRESH,
+        context_mode=source_identity.context_mode,
     )
     for run_id in run_ids:
         source_final = load_logprobs(
-            source_spec.agent,
+            source_identity.agent,
             source_self,
             run_id,
             maze_name,
             observable,
-            source_context_mode=source_spec.context_mode,
+            source_context_mode=source_identity.context_mode,
             horizon=horizon,
         )[-1]
         for evaluator in comparisons:
             eval_final = load_logprobs(
-                source_spec.agent,
+                source_identity.agent,
                 evaluator,
                 run_id,
                 maze_name,
                 observable,
-                source_context_mode=source_spec.context_mode,
+                source_context_mode=source_identity.context_mode,
                 horizon=horizon,
             )[-1]
             if source_final > eval_final:
@@ -332,7 +333,7 @@ def _draw_model_accuracies(
         x - width / 2,
         source_rates,
         width,
-        label=_policy_label(source_spec),
+        label=_policy_label(source_identity),
         color="#3498db",
     )
     for index, (evaluator, rate) in enumerate(zip(comparisons, eval_rates)):
@@ -351,13 +352,13 @@ def _draw_model_accuracies(
     ax.set_ylabel("Win Rate", fontsize=12)
     ax.set_xlabel("Comparison", fontsize=12)
     ax.set_title(
-        f"Model Accuracy on '{_policy_label(source_spec)}'-Generated Trajectories",
+        f"Model Accuracy on '{_policy_label(source_identity)}'-Generated Trajectories",
         fontsize=14,
     )
     ax.set_xticks(x)
     ax.set_xticklabels(
         [
-            f"{_policy_artifact_label(source_spec)} vs {evaluator.label}"
+            f"{_policy_artifact_label(source_identity)} vs {evaluator.label}"
             for evaluator in comparisons
         ],
         ha="right",
@@ -491,12 +492,12 @@ def plot_aggregate_trajectory_stats(
     filepath: Path | None = None,
 ) -> None:
     del benchmark_note
-    source_spec = _normalize_policy(source)
+    source_identity = _normalize_policy(source)
     selected_run_ids = (
         run_ids
         if run_ids is not None
         else _common_run_ids(
-            [source_spec, *(cohort_policies or [])],
+            [source_identity, *(cohort_policies or [])],
             maze_name,
             observable,
             horizon=horizon,
@@ -504,13 +505,13 @@ def plot_aggregate_trajectory_stats(
     )
     if not selected_run_ids:
         selected_run_ids = _load_policy_run_ids(
-            source_spec, maze_name, observable, horizon=horizon
+            source_identity, maze_name, observable, horizon=horizon
         )
 
     trajectories = [
         _flatten_run_dataset(
             _load_policy_run_dataset(
-                source_spec,
+                source_identity,
                 run_id,
                 maze_name,
                 observable,
@@ -527,7 +528,7 @@ def plot_aggregate_trajectory_stats(
     plot_mean_trajectory_stats(
         trajectories,
         maze,
-        source_spec,
+        source_identity,
         save=save,
         show=show,
         filename_suffix=filename_suffix,
@@ -661,11 +662,11 @@ def plot_patch_timing_summary(
     horizon: int | None = None,
     filepath: Path | None = None,
 ):
-    source_spec = _normalize_policy(source)
+    source_identity = _normalize_policy(source)
     selected_run_ids = (
         run_ids
         if run_ids is not None
-        else _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+        else _load_policy_run_ids(source_identity, maze_name, observable, horizon=horizon)
     )
     if not selected_run_ids:
         return None
@@ -696,7 +697,7 @@ def plot_patch_timing_summary(
 
     for run_id in selected_run_ids:
         run_dataset = _load_policy_run_dataset(
-            source_spec,
+            source_identity,
             run_id,
             maze_name,
             observable,
@@ -749,7 +750,7 @@ def plot_patch_timing_summary(
 
     fig.suptitle(
         _figure_title(
-            f"Patch Timing Summary: '{_policy_label(source_spec)}' ({maze_name}, {_obs_tag(observable)})",
+            f"Patch Timing Summary: '{_policy_label(source_identity)}' ({maze_name}, {_obs_tag(observable)})",
             benchmark_label,
         ),
         fontsize=16,
@@ -758,7 +759,7 @@ def plot_patch_timing_summary(
 
     if filepath is None:
         filename = (
-            f"patch_timing_{_policy_artifact_label(source_spec)}_"
+            f"patch_timing_{_policy_artifact_label(source_identity)}_"
             f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
         )
         if filename_suffix is not None:
@@ -887,15 +888,15 @@ def plot_single_run_stats(
 
     Contrasts with plot_mean_trajectory_stats which averages across many runs.
     """
-    source_spec = _normalize_policy(source)
-    available_ids = _load_policy_run_ids(source_spec, maze_name, observable, horizon=horizon)
+    source_identity = _normalize_policy(source)
+    available_ids = _load_policy_run_ids(source_identity, maze_name, observable, horizon=horizon)
     if not available_ids:
-        print(f"No run datasets found for '{_policy_label(source_spec)}' on {maze_name}.")
+        print(f"No run datasets found for '{_policy_label(source_identity)}' on {maze_name}.")
         return None
 
     selected_id = run_id if run_id is not None else available_ids[0]
     run_dataset = _load_policy_run_dataset(
-        source_spec, selected_id, maze_name, observable, horizon=horizon
+        source_identity, selected_id, maze_name, observable, horizon=horizon
     )
     trajectory = _flatten_run_dataset(run_dataset)
 
@@ -908,7 +909,7 @@ def plot_single_run_stats(
 
     fig.suptitle(
         _figure_title(
-            f"Single-Run Overview: '{_policy_label(source_spec)}' "
+            f"Single-Run Overview: '{_policy_label(source_identity)}' "
             f"(run {selected_id}, {maze_name}, {_obs_tag(observable)})",
             benchmark_label,
         ),
@@ -918,7 +919,7 @@ def plot_single_run_stats(
 
     if filepath is None:
         filename = (
-            f"single_run_{_policy_artifact_label(source_spec)}_"
+            f"single_run_{_policy_artifact_label(source_identity)}_"
             f"{maze_name}_{_obs_tag(observable)}{_figure_suffix(maze_name, horizon)}"
         )
         if filename_suffix is not None:
@@ -1621,8 +1622,8 @@ def plot_recovery_heatmap_delta(
 
 if __name__ == '__main__':
     plot_aggregate_comparison(
-        Agent.QLearning,
-        [Agent.MBRL, Agent.SRDyna],
+        Agent.Q_LEARNING,
+        [Agent.MBRL, Agent.SR_DYNA],
         maze_name="full_one_way_perturbed_detour",
         num_datasets=100,
         observable=True,
@@ -1632,7 +1633,7 @@ if __name__ == '__main__':
 
     plot_aggregate_comparison(
         Agent.MBRL,
-        [Agent.QLearning, Agent.SRDyna],
+        [Agent.Q_LEARNING, Agent.SR_DYNA],
         maze_name="full_one_way_perturbed_detour",
         num_datasets=100,
         observable=True,
@@ -1641,8 +1642,8 @@ if __name__ == '__main__':
     )
 
     plot_aggregate_comparison(
-        Agent.SRDyna,
-        [Agent.MBRL, Agent.QLearning],
+        Agent.SR_DYNA,
+        [Agent.MBRL, Agent.Q_LEARNING],
         maze_name="full_one_way_perturbed_detour",
         num_datasets=100,
         observable=True,
