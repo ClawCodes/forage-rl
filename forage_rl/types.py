@@ -123,10 +123,6 @@ class RunDataset(BaseModel, Generic[T]):
         """Return the number of episodes in this run."""
         return len(self.trajectories)
 
-    def num_episodes(self) -> int:
-        """Return the number of episodes in this run."""
-        return len(self.trajectories)
-
     def num_transitions(self) -> int:
         """Return the total number of transitions across all episodes."""
         return sum(len(trajectory) for trajectory in self.trajectories)
