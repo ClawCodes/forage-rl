@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 
-from forage_rl import RunDataset
+from forage_rl.types import RunDataset
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.agents.registry import (
     Agent,
@@ -16,7 +16,7 @@ from forage_rl.agents.registry import (
     NeuralContextMode,
 )
 from forage_rl.config import DefaultParams
-from forage_rl.config import ensure_directories
+from forage_rl.config import ensure_output_directories
 from forage_rl.environments import (
     Maze,
     load_builtin_maze_spec,
@@ -128,7 +128,7 @@ def evaluate_run_dataset(
     evaluators: list[EvaluatorInput] | None = None,
     observable: bool = True,
     device: str = "auto",
-    seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    seed: int = DefaultParams.DEFAULT_SEED,
     source_context_mode: NeuralContextMode = "legacy_context",
     horizon: int | None = None,
 ) -> dict[EvaluatorSpec, np.ndarray]:
@@ -389,7 +389,7 @@ def run_inference_experiment(
     verbose: bool = True,
     workers: int | None = None,
     device: str = "auto",
-    base_seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    base_seed: int = DefaultParams.DEFAULT_SEED,
     source_context_mode: NeuralContextMode = "legacy_context",
     horizon: int | None = None,
 ) -> None:
@@ -399,7 +399,7 @@ def run_inference_experiment(
     if compare_to is None:
         compare_to = registered_agents()
 
-    ensure_directories()
+    ensure_output_directories()
 
     normalized_compare_to = [_normalize_evaluator(item) for item in compare_to]
     evaluator_batches = build_torch_batches(normalized_compare_to, device=device)
@@ -513,8 +513,8 @@ def main() -> None:
     parser.add_argument(
         "--seed",
         type=int,
-        default=DefaultParams.FRESH_EVALUATOR_SEED,
-        help="Deterministic seed for fresh neural evaluators",
+        default=DefaultParams.DEFAULT_SEED,
+        help="Deterministic base seed for reproducible evaluator initialization",
     )
     parser.add_argument(
         "--horizon",

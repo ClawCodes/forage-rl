@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 
 import numpy as np
 
-from forage_rl import TimedTransition, Trajectory, Transition
+from forage_rl.types import TimedTransition, Trajectory, Transition
 
 T = TypeVar("T", bound=Transition)
 _BENCHMARK_KINDS = {"true_mvt", "fo_oracle"}

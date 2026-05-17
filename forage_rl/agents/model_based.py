@@ -5,7 +5,7 @@ from .base import BaseAgent
 from .q_table import QTable
 
 from forage_rl.config import DefaultParams
-from forage_rl import RunDataset, TimedTransition, Trajectory
+from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.environments import Maze
 from .base import ensure_time_spent_compatible
 
@@ -22,7 +22,7 @@ class MBRL(BaseAgent):
     def __init__(
         self,
         maze: Maze,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         gamma: float = DefaultParams.GAMMA,
         num_planning_steps: int = DefaultParams.NUM_PLANNING_STEPS,
         beta: float = DefaultParams.BETA,

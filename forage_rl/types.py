@@ -6,6 +6,8 @@ from typing import Generic, Self, TypeVar
 import numpy as np
 from pydantic import BaseModel, ConfigDict, model_validator
 
+__all__ = ("Transition", "TimedTransition", "Trajectory", "RunDataset")
+
 
 class Transition(BaseModel):
     """A single state transition in an environment."""

@@ -57,13 +57,13 @@ def main() -> None:
     parser.add_argument(
         "--num-runs",
         type=int,
-        default=DefaultParams.NUM_TRAINING_RUNS,
+        default=DefaultParams.NUM_RUN_DATASETS,
         help="Number of independent run datasets to generate",
     )
     parser.add_argument(
         "--num-episodes",
         type=int,
-        default=DefaultParams.NUM_TRAINING_EPISODES,
+        default=DefaultParams.TRAINING_EPISODES,
         help="Episodes per run dataset",
     )
     parser.add_argument(
@@ -102,8 +102,8 @@ def main() -> None:
     parser.add_argument(
         "--seed",
         type=int,
-        default=DefaultParams.FRESH_EVALUATOR_SEED,
-        help="Deterministic base seed for generation and fresh evaluators",
+        default=DefaultParams.DEFAULT_SEED,
+        help="Deterministic base seed for reproducible generation and evaluation",
     )
     parser.add_argument(
         "--horizon",

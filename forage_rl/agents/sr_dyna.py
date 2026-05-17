@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from forage_rl import RunDataset, TimedTransition, Trajectory
+from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.successor_base import BaseSRAgent
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
@@ -30,7 +30,7 @@ class SRDynaAgent(BaseSRAgent):
     def __init__(
         self,
         maze: Maze,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         gamma: float = DefaultParams.GAMMA,
         alpha_sr: float = DefaultParams.ALPHA_SR,
         alpha_w: float = DefaultParams.ALPHA_W,
