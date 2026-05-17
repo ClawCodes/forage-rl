@@ -7,7 +7,8 @@ from typing import ClassVar, Final
 # Needed Directories #
 ######################
 
-BASE_DIR: Final[Path] = Path(__file__).parent.parent  # Repository root directory
+PACKAGE_DIR: Final[Path] = Path(__file__).resolve().parent  # forage_rl package directory
+BASE_DIR: Final[Path] = PACKAGE_DIR.parent  # Repository root directory
 
 DATA_DIR: Final[Path] = BASE_DIR / "data"  # Root directory for generated data
 TRAJECTORIES_DIR: Final[Path] = DATA_DIR / "trajectories"  # Saved trajectory files
@@ -16,7 +17,7 @@ CHECKPOINTS_DIR: Final[Path] = DATA_DIR / "checkpoints"  # Saved model checkpoin
 FIGURES_DIR: Final[Path] = BASE_DIR / "outputs" / "figures"  # Generated figures
 
 MAZE_SPECS_DIR: Final[Path] = (
-    BASE_DIR / "forage_rl" / "environments" / "maze_specs"
+    PACKAGE_DIR / "environments" / "maze_specs"
 )  # Built-in maze spec TOML files
 
 
