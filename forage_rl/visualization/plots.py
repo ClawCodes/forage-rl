@@ -8,7 +8,7 @@ from typing import Optional, Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 
-from forage_rl import RunDataset, Trajectory
+from forage_rl.types import RunDataset, Trajectory
 from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec
 from forage_rl.analysis.patch_timing import (
     aggregate_curves,

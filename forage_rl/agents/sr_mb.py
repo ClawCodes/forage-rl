@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from forage_rl import RunDataset, TimedTransition, Trajectory
+from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.successor_base import BaseSRAgent
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze

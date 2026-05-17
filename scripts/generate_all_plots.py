@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from forage_rl import Trajectory
+from forage_rl.types import Trajectory
 from forage_rl.agents.registry import Agent, PolicySpec, agent_display_label
 from forage_rl.analysis import (
     oracle_patch_optimal_prt_by_state,

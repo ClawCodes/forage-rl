@@ -5,7 +5,7 @@ from .base import BaseAgent
 from .q_table import QTable
 
 from forage_rl.config import DefaultParams
-from forage_rl import RunDataset, TimedTransition, Trajectory
+from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.environments import Maze
 from .base import ensure_time_spent_compatible
 

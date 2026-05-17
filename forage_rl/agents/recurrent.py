@@ -7,7 +7,7 @@ from typing import TypedDict
 
 import numpy as np
 
-from forage_rl import RunDataset, TimedTransition, Trajectory
+from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.neural_base import NeuralAgentBase
 from forage_rl.agents.registry import Agent
 from forage_rl.config import DefaultParams

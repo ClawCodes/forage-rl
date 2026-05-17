@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from forage_rl import RunDataset, Trajectory
+from forage_rl.types import RunDataset, Trajectory
 from forage_rl.config import DefaultParams
 from forage_rl.environments import Maze
 

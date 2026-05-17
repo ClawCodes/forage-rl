@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 
-from forage_rl import RunDataset
+from forage_rl.types import RunDataset
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.agents.registry import (
     Agent,

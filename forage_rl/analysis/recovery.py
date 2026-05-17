@@ -6,7 +6,7 @@ from collections.abc import Collection
 
 import numpy as np
 
-from forage_rl import RunDataset, Trajectory
+from forage_rl.types import RunDataset, Trajectory
 from forage_rl.analysis.patch_timing import extract_decision_rows
 
 

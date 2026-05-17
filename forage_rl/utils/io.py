@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from forage_rl import RunDataset, TimedTransition, Trajectory, Transition
+from forage_rl.types import RunDataset, TimedTransition, Trajectory, Transition
 from forage_rl.agents.registry import (
     Agent,
     EvaluatorSpec,
