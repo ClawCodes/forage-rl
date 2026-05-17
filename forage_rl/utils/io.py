@@ -28,6 +28,7 @@ from forage_rl.utils.artifact_names import (
     evaluator_label_for_agent,
     existing_path,
     extract_run_id,
+    is_canonical_run_dataset_file,
     load_candidate_agents,
     matches_exact_horizon_prefix,
     neural_context_suffix,
@@ -402,8 +403,9 @@ def list_run_dataset_files(
         return sorted(
             path
             for path in TRAJECTORIES_DIR.glob(
-                f"{prefix}_{agent_part}_run_dataset_*.npz"
+                f"{prefix}_{agent_part}*_run_dataset_*.npz"
             )
+            if is_canonical_run_dataset_file(path)
             if (not exact_prefix)
             or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
         )
@@ -413,10 +415,11 @@ def list_run_dataset_files(
         agent_part = (
             f"{candidate.value}{neural_context_suffix(candidate, context_mode)}"
         )
-        pattern = f"{prefix}_{agent_part}_run_dataset_*.npz"
+        pattern = f"{prefix}_{agent_part}*_run_dataset_*.npz"
         paths.update(
             path
             for path in TRAJECTORIES_DIR.glob(pattern)
+            if is_canonical_run_dataset_file(path)
             if (not exact_prefix)
             or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
         )
@@ -452,6 +455,7 @@ _neural_context_suffix = neural_context_suffix
 _load_candidate_agents = load_candidate_agents
 _existing_path = existing_path
 _extract_run_id = extract_run_id
+_is_canonical_run_dataset_file = is_canonical_run_dataset_file
 _matches_exact_horizon_prefix = matches_exact_horizon_prefix
 _run_dataset_filename = run_dataset_filename
 _checkpoint_label = checkpoint_label

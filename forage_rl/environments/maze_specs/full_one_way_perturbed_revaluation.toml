@@ -1,6 +1,6 @@
 [maze]
 name = "full_one_way_perturbed_revaluation"
-horizon = 700
+horizon = 1000
 initial_state = 0
 action_labels = ["stay", "leave"]
 observation_labels = ["Upper Patch", "Lower Patch", "Corridor A", "Corridor B"]
@@ -68,7 +68,7 @@ observation_group = 3
 leave = [[0, 0.15], [1, 0.35], [2, 0.50]]
 
 [perturbation]
-perturbation_time = 350
+perturbation_time = 500
 
 [perturbation.states.0]
 label = "Upper Patch A"

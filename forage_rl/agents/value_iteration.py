@@ -58,6 +58,9 @@ class ValueIterationSolver:
 
         V(s) = max_a Σ_s' P(s'|s,a) * [R(s,a,s') + γ * V(s')]
         """
+        if action not in self.maze.valid_actions(state):
+            return float("-inf")
+
         expected_value = 0.0
         for next_state, prob in self._get_transition_probs(state, action):
             reward = self._get_expected_reward(state, time, action)

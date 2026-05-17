@@ -1,4 +1,21 @@
-"""Shared patch-timing analysis helpers for trajectory summaries."""
+"""Shared patch-timing analysis helpers for trajectory summaries.
+
+This module remains focused on stationary oracle patch-timing diagnostics,
+hidden-state inference, and generic leave-event extraction. External
+perturbation recovery analysis lives in dedicated modules under
+``forage_rl.analysis``.
+
+Terminology used in this module:
+
+- ``time_spent`` is zero-based consecutive time in the current patch/state.
+  ``time_spent == 0`` means "about to make the first stay/leave decision after
+  arriving in the patch".
+- ``dwell`` is one-based patch residency length. A leave decision taken at
+  ``time_spent == 4`` corresponds to ``dwell == 5``.
+- ``oracle optimal dwell`` is the earliest leave threshold implied by the
+  optimal fully observable MDP policy. This is a dynamic-programming benchmark,
+  not a separate closed-form Marginal Value Theorem calculation.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +25,7 @@ from typing import Callable
 import numpy as np
 
 from forage_rl.agents.value_iteration import ValueIterationSolver
+from forage_rl.analysis.action_semantics import patch_exit_action_indices
 from forage_rl.environments import Maze, load_builtin_maze_spec
 
 
@@ -33,8 +51,23 @@ class CurveSummary:
 
 
 def observation_group_patch_labels(maze_name: str) -> dict[int, str]:
-    """Return one patch label for each observation group in a built-in maze."""
+    """Return one display label for each observation group in a built-in maze."""
     maze_spec = load_builtin_maze_spec(maze_name)
+    observation_labels = list(maze_spec.observation_labels)
+    if observation_labels:
+        observation_groups = sorted(
+            {int(state.observation_group) for state in maze_spec.states}
+        )
+        if observation_groups and max(observation_groups) >= len(observation_labels):
+            raise ValueError(
+                "Maze observation_labels do not cover every observation group, "
+                f"got groups={observation_groups} labels={observation_labels!r}."
+            )
+        return {
+            observation_group: observation_labels[observation_group]
+            for observation_group in observation_groups
+        }
+
     labels_by_group: dict[int, set[str]] = {}
     for state in maze_spec.states:
         labels_by_group.setdefault(state.observation_group, set()).add(state.label)
@@ -50,6 +83,16 @@ def observation_group_patch_labels(maze_name: str) -> dict[int, str]:
     return patch_labels
 
 
+def state_patch_labels(maze_name: str) -> dict[int, str]:
+    """Return state ids mapped to patch-level display labels."""
+    maze_spec = load_builtin_maze_spec(maze_name)
+    labels_by_group = observation_group_patch_labels(maze_name)
+    return {
+        int(state.id): labels_by_group.get(int(state.observation_group), state.label)
+        for state in maze_spec.states
+    }
+
+
 def observation_group_state_ids(maze: Maze) -> dict[int, tuple[int, ...]]:
     """Return true-state ids grouped by observation id."""
     groups: dict[int, list[int]] = {}
@@ -61,19 +104,39 @@ def observation_group_state_ids(maze: Maze) -> dict[int, tuple[int, ...]]:
     }
 
 
-def mvt_optimal_dwell_by_state(
+def oracle_optimal_dwell_by_state(
     *,
     maze_name: str,
     horizon: int,
 ) -> dict[int, int]:
-    """Return earliest optimal leave dwell by true state from the full MDP policy."""
+    """Return the first oracle-optimal leave dwell for each true state.
+
+    The underlying policy is indexed by ``policy[state, time_spent]`` where
+    ``time_spent`` is zero-based. This helper converts the earliest
+    ``time_spent`` at which the optimal policy chooses ``leave`` into a
+    one-based dwell length:
+
+    - first leave at ``time_spent == 0`` -> dwell ``1``
+    - first leave at ``time_spent == 4`` -> dwell ``5``
+
+    This helper provides a fully observed oracle benchmark for patch timing.
+    """
     maze = Maze(load_builtin_maze_spec(maze_name), seed=0, horizon=horizon)
     _, policy = ValueIterationSolver(maze).solve(verbose=False)
-    leave_action = maze.action_labels.index("leave")
+    stay_action = maze.action_labels.index("stay")
+    exit_actions = patch_exit_action_indices(maze)
 
     optimal_dwell_by_state: dict[int, int] = {}
     for state in range(maze.num_states):
-        leave_times = np.flatnonzero(policy[state] == leave_action)
+        valid_actions = maze.valid_actions(state)
+        if stay_action not in valid_actions:
+            continue
+        state_exit_actions = tuple(
+            action for action in valid_actions if action in exit_actions and action != stay_action
+        )
+        if not state_exit_actions:
+            continue
+        leave_times = np.flatnonzero(np.isin(policy[state], state_exit_actions))
         optimal_dwell_by_state[state] = (
             int(leave_times[0]) + 1 if leave_times.size > 0 else horizon
         )
@@ -131,7 +194,6 @@ def infer_hidden_states_for_trajectory(
         state_spec.id: state_spec.observation_group
         for state_spec in maze.maze_spec.states
     }
-    leave_action = maze.action_labels.index("leave")
     inferred_states = [maze.initial_state] * len(transitions)
 
     initial_observation = int(transitions[0].state)
@@ -165,8 +227,7 @@ def infer_hidden_states_for_trajectory(
         for step in range(visit_start, visit_end + 1):
             transition = transitions[step]
             if (
-                int(transition.action) == leave_action
-                or int(transition.next_state) != current_observation
+                int(transition.next_state) != current_observation
             ):
                 continue
             for state in weighted_posterior:
@@ -189,12 +250,15 @@ def infer_hidden_states_for_trajectory(
             break
 
         next_observation = int(final_transition.next_state)
+        chosen_action = int(final_transition.action)
         next_candidates = observation_group_to_states[next_observation]
         next_posterior = {state: 0.0 for state in next_candidates}
         for state, probability in posterior.items():
+            if chosen_action not in maze.valid_actions(state):
+                continue
             for next_state, transition_probability in maze.transition_distribution(
                 state,
-                leave_action,
+                chosen_action,
             ):
                 if next_state in next_posterior:
                     next_posterior[next_state] += probability * transition_probability
@@ -287,16 +351,26 @@ def leave_probability_curve(
     return probs
 
 
-def mvt_residency_deviation_by_patch(
+def oracle_residency_deviation_by_patch(
     rows: list[DecisionRow],
     *,
     leave_action: int,
     optimal_dwell_by_state: dict[int, int],
 ) -> dict[str, list[int]]:
-    """Return signed leave-dwell deviations from the MVT-optimal dwell."""
+    """Return signed deviations from the oracle leave-dwell threshold.
+
+    Each value is:
+
+    ``actual_leave_dwell - optimal_leave_dwell_for_state``
+
+    Negative values mean the policy left earlier than the benchmark threshold;
+    positive values mean it stayed longer.
+    """
     deviations: dict[str, list[int]] = {"Upper Patch": [], "Lower Patch": []}
     for row in rows:
         if row.action != leave_action:
+            continue
+        if row.state not in optimal_dwell_by_state:
             continue
         actual_dwell = row.time_spent + 1
         optimal_dwell = optimal_dwell_by_state[row.state]
@@ -324,7 +398,20 @@ def normalized_curve_auc(curve: np.ndarray) -> float:
 
 def aggregate_curves(curves: list[np.ndarray]) -> CurveSummary:
     """Aggregate aligned curves with NaN-aware mean/std at each x position."""
-    stacked = np.stack(curves)
+    if not curves:
+        empty = np.array([], dtype=float)
+        return CurveSummary(x=np.array([], dtype=int), mean=empty, std=empty)
+
+    max_len = max(len(curve) for curve in curves)
+    if max_len == 0:
+        empty = np.array([], dtype=float)
+        return CurveSummary(x=np.array([], dtype=int), mean=empty, std=empty)
+
+    stacked = np.full((len(curves), max_len), np.nan, dtype=float)
+    for row_index, curve in enumerate(curves):
+        if len(curve) == 0:
+            continue
+        stacked[row_index, : len(curve)] = np.asarray(curve, dtype=float)
     x = np.arange(stacked.shape[1], dtype=int)
     mean = np.full(stacked.shape[1], np.nan, dtype=float)
     std = np.full(stacked.shape[1], np.nan, dtype=float)

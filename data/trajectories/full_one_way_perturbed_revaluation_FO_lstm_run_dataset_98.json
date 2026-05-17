@@ -1,0 +1,10 @@
+{
+  "container_type": "run_dataset",
+  "agent": "lstm",
+  "maze_name": "full_one_way_perturbed_revaluation",
+  "observable": true,
+  "horizon": 1000,
+  "num_episodes": 1,
+  "num_transitions": 1000,
+  "context_mode": "prev_reward"
+}
