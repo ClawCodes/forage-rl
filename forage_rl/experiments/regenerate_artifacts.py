@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import argparse
 
-from forage_rl.agents.registry import Agent, EvaluatorSpec, neural_agents
+from forage_rl.agents.context import DEFAULT_NEURAL_CONTEXT_MODE
+from forage_rl.agents.registry import (
+    Agent,
+    neural_agents,
+)
+from forage_rl.agents.identities import EvaluatorMode, EvaluatorIdentity
 from forage_rl.config import DefaultParams
 from forage_rl.experiments.generate_trajectories import run_generation_experiment
 from forage_rl.experiments.model_inference import run_inference_experiment
@@ -16,34 +21,32 @@ from forage_rl.visualization.plots import (
     plot_patch_timing_summary,
 )
 
-EvaluatorMode = str
-
 
 def default_sources() -> list[Agent]:
-    return [Agent.MBRL, Agent.QLearning, Agent.DQN, Agent.ELMAN, Agent.GRU, Agent.LSTM]
+    return [Agent.MBRL, Agent.Q_LEARNING, Agent.DQN, Agent.ELMAN, Agent.GRU, Agent.LSTM]
 
 
-def default_evaluators() -> list[Agent | EvaluatorSpec]:
-    evaluators: list[Agent | EvaluatorSpec] = [Agent.MBRL, Agent.QLearning]
+def default_evaluators() -> list[Agent | EvaluatorIdentity]:
+    evaluators: list[Agent | EvaluatorIdentity] = [Agent.MBRL, Agent.Q_LEARNING]
     for agent in neural_agents():
-        evaluators.append(EvaluatorSpec(agent=agent, mode="fresh"))
-        evaluators.append(EvaluatorSpec(agent=agent, mode="pretrained"))
+        evaluators.append(EvaluatorIdentity(agent=agent, mode=EvaluatorMode.FRESH))
+        evaluators.append(EvaluatorIdentity(agent=agent, mode=EvaluatorMode.PRETRAINED))
     return evaluators
 
 
 def filter_evaluators(
-    evaluators: list[Agent | EvaluatorSpec],
-    evaluator_mode: EvaluatorMode,
-) -> list[Agent | EvaluatorSpec]:
+    evaluators: list[Agent | EvaluatorIdentity],
+    evaluator_mode: str,
+) -> list[Agent | EvaluatorIdentity]:
     """Filter neural evaluator modes while preserving tabular baselines."""
     if evaluator_mode == "all":
         return evaluators
 
-    filtered: list[Agent | EvaluatorSpec] = []
+    filtered: list[Agent | EvaluatorIdentity] = []
     for evaluator in evaluators:
         if isinstance(evaluator, Agent):
             filtered.append(evaluator)
-        elif evaluator.mode == evaluator_mode:
+        elif evaluator.mode.value == evaluator_mode:
             filtered.append(evaluator)
     return filtered
 
@@ -92,7 +95,7 @@ def regenerate_artifacts(
     skip_generation: bool = False,
     skip_inference: bool = False,
     skip_figures: bool = False,
-    evaluator_mode: EvaluatorMode = "all",
+    evaluator_mode: str = "all",
     verbose: bool = True,
 ) -> None:
     """Rebuild trajectory datasets, inference outputs, and figures."""
@@ -122,7 +125,7 @@ def regenerate_artifacts(
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                context_mode="legacy_context",
+                context_mode=DEFAULT_NEURAL_CONTEXT_MODE,
                 horizon=horizon,
             )
 
@@ -137,7 +140,7 @@ def regenerate_artifacts(
                 workers=workers,
                 base_seed=seed,
                 device=device,
-                context_mode="legacy_context",
+                context_mode=DEFAULT_NEURAL_CONTEXT_MODE,
                 horizon=horizon,
             )
 
@@ -152,7 +155,7 @@ def regenerate_artifacts(
                 workers=workers,
                 device=device,
                 base_seed=seed,
-                source_context_mode="legacy_context",
+                source_context_mode=DEFAULT_NEURAL_CONTEXT_MODE,
                 horizon=horizon,
             )
 

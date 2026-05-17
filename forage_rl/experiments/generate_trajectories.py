@@ -6,7 +6,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import TypedDict
 
 from forage_rl.agents import get_agent, registered_agents
-from forage_rl.agents.registry import Agent, NEURAL_CONTEXT_MODES, NeuralContextMode
+from forage_rl.agents.context import (
+    DEFAULT_NEURAL_CONTEXT_MODE,
+    NEURAL_CONTEXT_MODES,
+    NeuralContextMode,
+    validate_context_mode,
+)
+from forage_rl.agents.registry import Agent
 from forage_rl.config import DefaultParams, ensure_output_directories
 from forage_rl.environments import (
     Maze,
@@ -222,7 +228,7 @@ def run_generation_experiment(
     workers: int | None = None,
     base_seed: int | None = None,
     device: str = "auto",
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
     horizon: int | None = None,
 ) -> None:
     """Generate trajectories for one or more registered agents."""
@@ -302,9 +308,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--context-mode",
-        choices=list(NEURAL_CONTEXT_MODES),
-        default="legacy_context",
-        help="Neural input context mode for DQN/Elman/GRU/LSTM; ignored by non-neural agents.",
+        type=validate_context_mode,
+        default=DEFAULT_NEURAL_CONTEXT_MODE,
+        help=(
+            "Neural input context mode for DQN/Elman/GRU/LSTM; ignored by "
+            f"non-neural agents. Valid modes: {', '.join(NEURAL_CONTEXT_MODES)}."
+        ),
     )
     parser.add_argument(
         "--horizon",

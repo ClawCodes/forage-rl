@@ -9,13 +9,13 @@ from typing import TypeVar
 
 from forage_rl.agents.registry import (
     Agent,
-    EvaluatorSpec,
     is_neural_agent as _is_registered_neural_agent,
 )
+from forage_rl.agents.identities import EvaluatorIdentity
 from forage_rl.utils.torch_support import resolve_device
 
 
-TAgentLike = TypeVar("TAgentLike", Agent, EvaluatorSpec)
+TAgentLike = TypeVar("TAgentLike", Agent, EvaluatorIdentity)
 
 
 @dataclass(frozen=True)
@@ -32,8 +32,8 @@ def is_neural_agent(agent: Agent) -> bool:
     return _is_registered_neural_agent(agent)
 
 
-def uses_torch_agents(items: list[Agent | EvaluatorSpec] | None) -> bool:
-    """Return whether a list of agents or evaluator specs includes a neural agent."""
+def uses_torch_agents(items: list[Agent | EvaluatorIdentity] | None) -> bool:
+    """Return whether a list of agents or evaluator identities includes a neural agent."""
     if items is None:
         return False
 
