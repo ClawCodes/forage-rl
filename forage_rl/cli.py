@@ -5,7 +5,18 @@ from __future__ import annotations
 import argparse
 import sys
 
-from forage_rl.agents.registry import Agent, NEURAL_CONTEXT_MODES, registered_agents
+from forage_rl.agents.context import (
+    DEFAULT_NEURAL_CONTEXT_MODE,
+    NEURAL_CONTEXT_MODES,
+    NeuralContextMode,
+    validate_context_mode,
+)
+from forage_rl.agents.registry import (
+    Agent,
+    is_neural_agent,
+    registered_agents,
+)
+from forage_rl.agents.identities import EvaluatorMode, EvaluatorIdentity, PolicyIdentity
 from forage_rl.config import DefaultParams
 from forage_rl.experiments.generate_trajectories import run_generation_experiment
 from forage_rl.experiments.model_inference import (
@@ -37,6 +48,46 @@ def _parse_agents(values: list[str]) -> list[Agent]:
     return [Agent(value) for value in values]
 
 
+def _normalize_evaluator(evaluator: Agent | EvaluatorIdentity) -> EvaluatorIdentity:
+    if isinstance(evaluator, EvaluatorIdentity):
+        return evaluator
+    return EvaluatorIdentity(agent=evaluator)
+
+
+def _source_fresh_evaluator(
+    source: Agent,
+    context_mode: NeuralContextMode,
+) -> EvaluatorIdentity:
+    if is_neural_agent(source):
+        return EvaluatorIdentity(
+            agent=source,
+            mode=EvaluatorMode.FRESH,
+            context_mode=context_mode,
+        )
+    return EvaluatorIdentity(agent=source, mode=EvaluatorMode.FRESH)
+
+
+def _with_source_fresh_evaluator(
+    compare_to: list[Agent | EvaluatorIdentity],
+    source: Agent,
+    context_mode: NeuralContextMode,
+) -> list[Agent | EvaluatorIdentity]:
+    """Ensure inference writes the source self-likelihood needed by plots."""
+    source_fresh = _source_fresh_evaluator(source, context_mode)
+    if source_fresh in {_normalize_evaluator(evaluator) for evaluator in compare_to}:
+        return compare_to
+    return [*compare_to, source_fresh]
+
+
+def _policy_identity_for_context(
+    agent: Agent,
+    context_mode: NeuralContextMode,
+) -> PolicyIdentity:
+    if is_neural_agent(agent):
+        return PolicyIdentity(agent=agent, context_mode=context_mode)
+    return PolicyIdentity(agent=agent)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Full pipeline: generate trajectories, run inference, and plot."
@@ -51,7 +102,7 @@ def main() -> None:
         nargs="+",
         default=["all"],
         help=(
-            "Evaluator agent name(s), evaluator specs like dqn:pretrained, or 'all'."
+            "Evaluator agent name(s), evaluator identities like dqn:pretrained, or 'all'."
         ),
     )
     parser.add_argument(
@@ -95,9 +146,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--context-mode",
-        choices=list(NEURAL_CONTEXT_MODES),
-        default="legacy_context",
-        help="Neural input context mode for source/evaluator neural policies.",
+        type=validate_context_mode,
+        default=DEFAULT_NEURAL_CONTEXT_MODE,
+        help=(
+            "Neural input context mode for source/evaluator neural policies. "
+            f"Valid modes: {', '.join(NEURAL_CONTEXT_MODES)}."
+        ),
     )
     parser.add_argument(
         "--seed",
@@ -173,9 +227,14 @@ def main() -> None:
             horizon=args.horizon,
         )
 
+    inference_compare_to = _with_source_fresh_evaluator(
+        compare_to,
+        source,
+        args.context_mode,
+    )
     run_inference_experiment(
         source_agents=[source],
-        compare_to=compare_to,
+        compare_to=inference_compare_to,
         maze_name=args.maze,
         num_datasets=args.num_datasets or args.num_runs,
         observable=observable,
@@ -187,7 +246,12 @@ def main() -> None:
         horizon=args.horizon,
     )
 
-    plot_policies = list(dict.fromkeys([source] + compare_to_agents))
+    plot_policies = list(
+        dict.fromkeys(
+            _policy_identity_for_context(agent, args.context_mode)
+            for agent in [source] + compare_to_agents
+        )
+    )
     for policy in plot_policies:
         plot_aggregate_trajectory_stats(
             policy,
@@ -200,7 +264,7 @@ def main() -> None:
         )
 
     plot_aggregate_comparison(
-        source,
+        _policy_identity_for_context(source, args.context_mode),
         compare_to,
         maze_name=args.maze,
         num_datasets=args.num_datasets or args.num_runs,
