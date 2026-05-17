@@ -20,13 +20,18 @@ MAZE_SPECS_DIR: Final[Path] = (
     PACKAGE_DIR / "environments" / "maze_specs"
 )  # Built-in maze spec TOML files
 
+OUTPUT_DIRS: Final[tuple[Path, ...]] = (
+    TRAJECTORIES_DIR,
+    LOGPROBS_DIR,
+    CHECKPOINTS_DIR,
+    FIGURES_DIR,
+)  # Generated directories to create before writing artifacts
+
 
 def ensure_output_directories() -> None:
     """Create generated data and figure directories if they don't exist."""
-    TRAJECTORIES_DIR.mkdir(parents=True, exist_ok=True)
-    LOGPROBS_DIR.mkdir(parents=True, exist_ok=True)
-    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    for directory in OUTPUT_DIRS:
+        directory.mkdir(parents=True, exist_ok=True)
 
 
 ######################
