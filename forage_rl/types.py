@@ -85,7 +85,7 @@ class Trajectory(BaseModel, Generic[T]):
         """Iterate over transitions in this single episode."""
         return iter(self.transitions)
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the number of transitions in this episode."""
         return len(self.transitions)
 
