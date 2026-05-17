@@ -4,6 +4,20 @@ from math import isfinite
 from pathlib import Path
 from typing import ClassVar, Final
 
+__all__ = (
+    "BASE_DIR",
+    "PACKAGE_DIR",
+    "DATA_DIR",
+    "TRAJECTORIES_DIR",
+    "LOGPROBS_DIR",
+    "CHECKPOINTS_DIR",
+    "FIGURES_DIR",
+    "MAZE_SPECS_DIR",
+    "OUTPUT_DIRS",
+    "ensure_output_directories",
+    "DefaultParams",
+)
+
 ######################
 # Needed Directories #
 ######################
