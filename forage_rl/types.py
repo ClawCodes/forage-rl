@@ -64,7 +64,16 @@ class Trajectory(BaseModel, Generic[T]):
     @classmethod
     def from_numpy(cls, arr: np.ndarray, transition_cls: type[T]) -> "Trajectory[T]":
         """Map each row to transition fields in model field order."""
+        if arr.ndim != 2:
+            raise ValueError("Trajectory array must be 2D.")
+
         fields = list(transition_cls.model_fields.keys())
+        if arr.shape[1] != len(fields):
+            raise ValueError(
+                f"Expected {len(fields)} columns for {transition_cls.__name__}, "
+                f"got {arr.shape[1]}."
+            )
+
         transitions = tuple(transition_cls(**dict(zip(fields, row))) for row in arr)
         return cls(transitions=transitions)
 
