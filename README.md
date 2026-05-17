@@ -35,9 +35,6 @@ your machine.
 on `cuda` and `mps`; CPU neural workloads still use multiprocessing with
 `spawn`.
 
-`drqn` remains accepted as a legacy alias for `lstm`, but canonical saved
-artifacts and benchmark labels now use `lstm`.
-
 ## Legacy Artifact Pipeline
 
 Run the older artifact pipeline with:
@@ -129,18 +126,18 @@ Available neural context modes:
 - `observation_only`: `observation_one_hot`
 - `prev_reward`: `observation_one_hot + prev_reward`
 - `prev_reward_time`: `observation_one_hot + normalized_time_spent + prev_reward`
-- `legacy_context`:
+- `prev_action_reward_time`:
   `observation_one_hot + normalized_time_spent + prev_reward + prev_action_one_hot`
 
-Non-legacy neural artifacts use distinct suffixes so they do not collide:
+Non-default neural artifacts use distinct suffixes so they do not collide:
 
-- `observation_only -> _obs_only`
+- `observation_only -> _observation_only`
 - `prev_reward -> _prev_reward`
 - `prev_reward_time -> _prev_reward_time`
 
 ## Pretrained Neural Evaluators
 
-Train canonical legacy final checkpoints for all neural agents with:
+Train canonical default-context final checkpoints for all neural agents with:
 
 ```bash
 python -m forage_rl.experiments.train_pretrained_agents --agents all --maze simple --device auto

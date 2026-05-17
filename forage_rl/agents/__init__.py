@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any
 from .model_based import MBRL
 from .q_learning import QLearning, QLearningTime
 from .q_table import QTable
-from .registry import EvaluatorSpec, PolicySpec, get_agent, registered_agents
+from .registry import get_agent, registered_agents
+from .identities import EvaluatorMode, EvaluatorIdentity, PolicyIdentity
 from .sr_dyna import SRDynaAgent
 from .sr_mb import SRMBAgent
 from .sr_td import SRTDAgent
@@ -18,19 +19,17 @@ if TYPE_CHECKING:
     from .dqn import DQNAgent
     from .recurrent import ElmanAgent, GRUAgent, LSTMAgent
 
-    DRQNAgent = LSTMAgent
-
 __all__ = [
     "BaseSRAgent",
     "DQNAgent",
-    "DRQNAgent",
     "ElmanAgent",
-    "EvaluatorSpec",
+    "EvaluatorIdentity",
+    "EvaluatorMode",
     "get_agent",
     "GRUAgent",
     "LSTMAgent",
     "MBRL",
-    "PolicySpec",
+    "PolicyIdentity",
     "QLearning",
     "QLearningTime",
     "QTable",
@@ -48,12 +47,6 @@ def __getattr__(name: str) -> Any:
 
         globals()[name] = DQNAgent
         return DQNAgent
-
-    if name == "DRQNAgent":
-        from .recurrent import LSTMAgent
-
-        globals()[name] = LSTMAgent
-        return LSTMAgent
 
     if name in {"ElmanAgent", "GRUAgent", "LSTMAgent"}:
         from .recurrent import ElmanAgent, GRUAgent, LSTMAgent

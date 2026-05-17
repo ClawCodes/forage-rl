@@ -8,13 +8,12 @@ import numpy as np
 
 from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.neural_base import NeuralAgentBase
-from forage_rl.agents.registry import Agent
 
 
 class DQNAgent(NeuralAgentBase):
     """DQN with replay, target networks, and Boltzmann action selection."""
 
-    agent_name = Agent.DQN
+    agent_name = "dqn"
 
     def __init__(
         self,
