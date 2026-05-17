@@ -1,7 +1,7 @@
 """Type definitions for transitions, trajectories, and run datasets."""
 
 from collections.abc import Iterator
-from typing import Generic, TypeVar
+from typing import Generic, Self, TypeVar
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -33,7 +33,7 @@ class TimedTransition(Transition):
         cls,
         transition: Transition,
         time_spent: int,
-    ) -> "TimedTransition":
+    ) -> Self:
         """Create a timed transition from a base transition and elapsed time."""
         return cls(
             state=transition.state,
@@ -55,14 +55,14 @@ class Trajectory(BaseModel, Generic[T]):
     transitions: tuple[T, ...]
 
     @model_validator(mode="after")
-    def validate_non_empty(self) -> "Trajectory[T]":
+    def validate_non_empty(self) -> Self:
         """Reject empty trajectories."""
         if not self.transitions:
             raise ValueError("Trajectory must contain at least one transition.")
         return self
 
     @classmethod
-    def from_numpy(cls, arr: np.ndarray, transition_cls: type[T]) -> "Trajectory[T]":
+    def from_numpy(cls, arr: np.ndarray, transition_cls: type[T]) -> Self:
         """Map each row to transition fields in model field order."""
         if arr.ndim != 2:
             raise ValueError("Trajectory array must be 2D.")
@@ -102,7 +102,7 @@ class RunDataset(BaseModel, Generic[T]):
     trajectories: tuple[Trajectory[T], ...]
 
     @model_validator(mode="after")
-    def validate_non_empty(self) -> "RunDataset[T]":
+    def validate_non_empty(self) -> Self:
         """Reject empty run datasets and mixed transition classes."""
         if not self.trajectories:
             raise ValueError("RunDataset must contain at least one trajectory.")
