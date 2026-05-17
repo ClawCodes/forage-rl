@@ -21,7 +21,9 @@ from pathlib import Path
 import numpy as np
 
 from forage_rl.types import Trajectory
-from forage_rl.agents.registry import Agent, PolicySpec, agent_display_label
+from forage_rl.agents.context import NeuralContextMode
+from forage_rl.agents.registry import Agent, agent_display_label
+from forage_rl.agents.identities import PolicyIdentity
 from forage_rl.analysis import (
     oracle_patch_optimal_prt_by_state,
     patch_exit_action_indices,
@@ -53,51 +55,51 @@ from forage_rl.visualization import (
 # ---------------------------------------------------------------------------
 
 TABULAR_AGENTS: list[Agent] = [
-    Agent.QLearning,
-    Agent.SRTD,
-    Agent.SRMB,
-    Agent.SRDyna,
+    Agent.Q_LEARNING,
+    Agent.SR_TD,
+    Agent.SR_MB,
+    Agent.SR_DYNA,
     Agent.MBRL,
 ]
 
-NEURAL_POLICIES: list[PolicySpec] = [
-    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"),
-    PolicySpec(agent=Agent.ELMAN, context_mode="prev_reward"),
-    PolicySpec(agent=Agent.GRU, context_mode="prev_reward"),
-    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
+NEURAL_POLICIES: list[PolicyIdentity] = [
+    PolicyIdentity(agent=Agent.DQN, context_mode=NeuralContextMode.PREV_REWARD),
+    PolicyIdentity(agent=Agent.ELMAN, context_mode=NeuralContextMode.PREV_REWARD),
+    PolicyIdentity(agent=Agent.GRU, context_mode=NeuralContextMode.PREV_REWARD),
+    PolicyIdentity(agent=Agent.LSTM, context_mode=NeuralContextMode.PREV_REWARD),
 ]
 
-PERTURBATION_SINGLE_POLICY = PolicySpec(
-    agent=Agent.GRU, context_mode="prev_reward"
+PERTURBATION_SINGLE_POLICY = PolicyIdentity(
+    agent=Agent.GRU, context_mode=NeuralContextMode.PREV_REWARD
 )
 
-REVALUATION_SINGLE_POLICIES: list[Agent | PolicySpec] = [
-    Agent.QLearning,
-    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"),
-    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
+REVALUATION_SINGLE_POLICIES: list[Agent | PolicyIdentity] = [
+    Agent.Q_LEARNING,
+    PolicyIdentity(agent=Agent.DQN, context_mode=NeuralContextMode.PREV_REWARD),
+    PolicyIdentity(agent=Agent.LSTM, context_mode=NeuralContextMode.PREV_REWARD),
     Agent.MBRL,
-    Agent.SRDyna,
+    Agent.SR_DYNA,
 ]
 
-PLOTTED_POLICIES: list[Agent | PolicySpec] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
+PLOTTED_POLICIES: list[Agent | PolicyIdentity] = [*TABULAR_AGENTS, *NEURAL_POLICIES]
 
 # Heatmaps follow the MF-to-MB taxonomy order used in the manuscript.
-HEATMAP_POLICIES: list[Agent | PolicySpec] = [
-    Agent.QLearning,
-    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"),
-    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"),
-    Agent.SRTD,
-    Agent.SRDyna,
-    Agent.SRMB,
+HEATMAP_POLICIES: list[Agent | PolicyIdentity] = [
+    Agent.Q_LEARNING,
+    PolicyIdentity(agent=Agent.DQN, context_mode=NeuralContextMode.PREV_REWARD),
+    PolicyIdentity(agent=Agent.LSTM, context_mode=NeuralContextMode.PREV_REWARD),
+    Agent.SR_TD,
+    Agent.SR_DYNA,
+    Agent.SR_MB,
     Agent.MBRL,
 ]
-HEATMAP_POLICY_LABELS: dict[Agent | PolicySpec, str] = {
-    Agent.QLearning: "Q-Learning",
-    PolicySpec(agent=Agent.DQN, context_mode="prev_reward"): "DQN",
-    PolicySpec(agent=Agent.LSTM, context_mode="prev_reward"): "DRQN",
-    Agent.SRTD: "SR-MF (SR-TD)",
-    Agent.SRDyna: "Dyna-Q",
-    Agent.SRMB: "SR-MB",
+HEATMAP_POLICY_LABELS: dict[Agent | PolicyIdentity, str] = {
+    Agent.Q_LEARNING: "Q-Learning",
+    PolicyIdentity(agent=Agent.DQN, context_mode=NeuralContextMode.PREV_REWARD): "DQN",
+    PolicyIdentity(agent=Agent.LSTM, context_mode=NeuralContextMode.PREV_REWARD): "LSTM",
+    Agent.SR_TD: "SR-MF (SR-TD)",
+    Agent.SR_DYNA: "Dyna-Q",
+    Agent.SR_MB: "SR-MB",
     Agent.MBRL: "Model-Based",
 }
 HEATMAP_GROUP_BOUNDARIES: tuple[int, ...] = (3, 4, 6)
@@ -164,19 +166,19 @@ def _build_patch_labels(maze_name: str, observable: bool) -> dict[int, str]:
         return {i: label for i, label in enumerate(spec.maze.observation_labels)}
 
 
-def _policy_display_label(policy: Agent | PolicySpec) -> str:
-    if isinstance(policy, PolicySpec):
+def _policy_display_label(policy: Agent | PolicyIdentity) -> str:
+    if isinstance(policy, PolicyIdentity):
         return policy.display_label
     return agent_display_label(policy)
 
 
 def _run_ids_for(
-    policy: Agent | PolicySpec,
+    policy: Agent | PolicyIdentity,
     maze_name: str,
     observable: bool,
     horizon: int = HORIZON,
 ) -> list[int]:
-    if isinstance(policy, PolicySpec):
+    if isinstance(policy, PolicyIdentity):
         return list_run_dataset_run_ids(
             policy.agent,
             maze_name,
@@ -188,13 +190,13 @@ def _run_ids_for(
 
 
 def _load_run_dataset_for(
-    policy: Agent | PolicySpec,
+    policy: Agent | PolicyIdentity,
     run_id: int,
     maze_name: str,
     observable: bool,
     horizon: int = HORIZON,
 ):
-    if isinstance(policy, PolicySpec):
+    if isinstance(policy, PolicyIdentity):
         return load_run_dataset(
             policy.agent,
             run_id,
@@ -278,12 +280,12 @@ def _resolved_states_for_recovery(
 
 
 def _compute_recovery_curves(
-    agents: list[Agent | PolicySpec],
+    agents: list[Agent | PolicyIdentity],
     maze_name: str,
     observable: bool,
     horizon: int = HORIZON,
     perturbation_t: int = PERTURBATION_T,
-) -> dict[Agent | PolicySpec, list[np.ndarray]]:
+) -> dict[Agent | PolicyIdentity, list[np.ndarray]]:
     """Load saved runs and compute a within-episode recovery curve per run.
 
     Benchmark PRTs come from the post-perturbation FO oracle so the recovery
@@ -294,7 +296,7 @@ def _compute_recovery_curves(
     exit_actions = patch_exit_action_indices(maze)
     benchmark_prt = _post_perturbation_benchmark_prt(maze_name, horizon=horizon)
 
-    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
+    curves_by_agent: dict[Agent | PolicyIdentity, list[np.ndarray]] = {}
     for agent in agents:
         run_ids = _run_ids_for(agent, maze_name, observable, horizon=horizon)
         if not run_ids:
@@ -331,19 +333,19 @@ def _compute_recovery_curves(
 
 
 def _compute_signed_recovery_curves(
-    agents: list[Agent | PolicySpec],
+    agents: list[Agent | PolicyIdentity],
     maze_name: str,
     observable: bool,
     horizon: int = HORIZON,
     perturbation_t: int = PERTURBATION_T,
-) -> dict[Agent | PolicySpec, list[np.ndarray]]:
+) -> dict[Agent | PolicyIdentity, list[np.ndarray]]:
     """Same as _compute_recovery_curves but returns signed deviations."""
     maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
     patch_labels = _build_patch_labels(maze_name, observable)
     exit_actions = patch_exit_action_indices(maze)
     benchmark_prt = _post_perturbation_benchmark_prt(maze_name, horizon=horizon)
 
-    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
+    curves_by_agent: dict[Agent | PolicyIdentity, list[np.ndarray]] = {}
     for agent in agents:
         run_ids = _run_ids_for(agent, maze_name, observable, horizon=horizon)
         if not run_ids:
@@ -376,21 +378,21 @@ def _compute_signed_recovery_curves(
 
 
 def _compute_boundary_window_curves(
-    agents: list[Agent | PolicySpec],
+    agents: list[Agent | PolicyIdentity],
     maze_name: str,
     observable: bool,
     *,
     horizon: int = HORIZON,
     perturbation_t: int = PERTURBATION_T,
     boundary_window: int = 100,
-) -> dict[Agent | PolicySpec, list[np.ndarray]]:
+) -> dict[Agent | PolicyIdentity, list[np.ndarray]]:
     """Load saved runs and compute before/after boundary-window curves per run."""
     maze = maze_from_builtin_maze_spec(maze_name, observable=True, horizon=horizon)
     patch_labels = _build_patch_labels(maze_name, observable)
     exit_actions = patch_exit_action_indices(maze)
     benchmark_prt = _post_perturbation_benchmark_prt(maze_name, horizon=horizon)
 
-    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]] = {}
+    curves_by_agent: dict[Agent | PolicyIdentity, list[np.ndarray]] = {}
     for agent in agents:
         run_ids = _run_ids_for(agent, maze_name, observable, horizon=horizon)
         if not run_ids:
@@ -428,11 +430,11 @@ def _compute_boundary_window_curves(
 
 
 def _mean_auc(
-    curves_by_agent: dict[Agent | PolicySpec, list[np.ndarray]],
+    curves_by_agent: dict[Agent | PolicyIdentity, list[np.ndarray]],
     window: int = AUC_WINDOW,
-) -> dict[Agent | PolicySpec, float]:
+) -> dict[Agent | PolicyIdentity, float]:
     """Compute mean recovery AUC across runs for each agent."""
-    result: dict[Agent | PolicySpec, float] = {}
+    result: dict[Agent | PolicyIdentity, float] = {}
     for agent, curves in curves_by_agent.items():
         aucs = [recovery_auc(c, window) for c in curves]
         finite = [a for a in aucs if not np.isnan(a)]
@@ -471,7 +473,7 @@ def section_1_baseline(dirs: dict[str, Path], show: bool) -> None:
             if not run_ids_agent:
                 print(f"  [SKIP] No data: {_policy_display_label(agent)} baseline {obs_tag}")
                 continue
-            agent_slug = agent.artifact_label if isinstance(agent, PolicySpec) else agent.value
+            agent_slug = agent.artifact_label if isinstance(agent, PolicyIdentity) else agent.value
             fp = dirs["baseline"] / f"trajectory_stats_{agent_slug}_{BASELINE_MAZE}_{obs_tag}.png"
             print(f"  trajectory stats: {_policy_display_label(agent)} {obs_tag}")
             plot_aggregate_trajectory_stats(
@@ -544,8 +546,8 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
     print("\n=== Section 3: Recovery AUC heatmaps ===")
 
     # Collect AUC matrices for FO and PO
-    auc_fo: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in HEATMAP_POLICIES}
-    auc_po: dict[Agent | PolicySpec, dict[str, float]] = {a: {} for a in HEATMAP_POLICIES}
+    auc_fo: dict[Agent | PolicyIdentity, dict[str, float]] = {a: {} for a in HEATMAP_POLICIES}
+    auc_po: dict[Agent | PolicyIdentity, dict[str, float]] = {a: {} for a in HEATMAP_POLICIES}
 
     for observable in OBSERVABILITY_CONDITIONS:
         store = auc_fo if observable else auc_po
@@ -606,9 +608,9 @@ def section_3_heatmap(dirs: dict[str, Path], show: bool) -> None:
 def section_4_comparisons(dirs: dict[str, Path], show: bool) -> None:
     print("\n=== Section 4: Algorithmic comparisons ===")
     pairs = [
-        (Agent.QLearning, Agent.SRTD),
-        (Agent.SRTD, Agent.SRMB),
-        (Agent.SRMB, Agent.SRDyna),
+        (Agent.Q_LEARNING, Agent.SR_TD),
+        (Agent.SR_TD, Agent.SR_MB),
+        (Agent.SR_MB, Agent.SR_DYNA),
     ]
     for observable in OBSERVABILITY_CONDITIONS:
         obs_tag = "FO" if observable else "PO"
@@ -657,7 +659,7 @@ def section_5_patch_timing(dirs: dict[str, Path], show: bool) -> None:
                     f"  [SKIP] No data: {_policy_display_label(agent)} {obs_tag}"
                 )
                 continue
-            agent_slug = agent.artifact_label if isinstance(agent, PolicySpec) else agent.value
+            agent_slug = agent.artifact_label if isinstance(agent, PolicyIdentity) else agent.value
             fp = dirs["patch_timing"] / f"patch_timing_{agent_slug}_{BASELINE_MAZE}_{obs_tag}.png"
             print(f"  {_policy_display_label(agent)} {obs_tag}")
             plot_patch_timing_summary(
@@ -692,7 +694,7 @@ def section_6_single_run_stats(dirs: dict[str, Path], show: bool) -> None:
 
         obs_tag = "FO" if selected_observable else "PO"
         agent_slug = (
-            agent.artifact_label if isinstance(agent, PolicySpec) else agent.value
+            agent.artifact_label if isinstance(agent, PolicyIdentity) else agent.value
         )
         fp = dirs["single"] / f"single_run_{agent_slug}_{BASELINE_MAZE}_{obs_tag}.png"
         print(f"  {_policy_display_label(agent)} {obs_tag}")
@@ -868,7 +870,7 @@ def section_11_revaluation_single_run_stats(
                 continue
 
             agent_slug = (
-                policy.artifact_label if isinstance(policy, PolicySpec) else policy.value
+                policy.artifact_label if isinstance(policy, PolicyIdentity) else policy.value
             )
             fp = out_dir / f"single_run_{short}_{agent_slug}_{obs_tag}.png"
             print(f"  {_policy_display_label(policy)} {obs_tag} / {short}")
@@ -907,7 +909,7 @@ def section_12_detour_single_run_stats(dirs: dict[str, Path], show: bool) -> Non
                 continue
 
             agent_slug = (
-                policy.artifact_label if isinstance(policy, PolicySpec) else policy.value
+                policy.artifact_label if isinstance(policy, PolicyIdentity) else policy.value
             )
             fp = out_dir / f"single_run_{short}_{agent_slug}_{obs_tag}.png"
             print(f"  {_policy_display_label(policy)} {obs_tag} / {short}")
