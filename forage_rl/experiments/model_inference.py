@@ -16,7 +16,7 @@ from forage_rl.agents.registry import (
     NeuralContextMode,
 )
 from forage_rl.config import DefaultParams
-from forage_rl.config import ensure_directories
+from forage_rl.config import ensure_output_directories
 from forage_rl.environments import (
     Maze,
     load_builtin_maze_spec,
@@ -399,7 +399,7 @@ def run_inference_experiment(
     if compare_to is None:
         compare_to = registered_agents()
 
-    ensure_directories()
+    ensure_output_directories()
 
     normalized_compare_to = [_normalize_evaluator(item) for item in compare_to]
     evaluator_batches = build_torch_batches(normalized_compare_to, device=device)

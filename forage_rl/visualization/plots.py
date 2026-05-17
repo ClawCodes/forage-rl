@@ -9,19 +9,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from forage_rl import RunDataset, Trajectory
-from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec, agent_display_label
+from forage_rl.agents.registry import Agent, EvaluatorSpec, PolicySpec
 from forage_rl.analysis.patch_timing import (
     aggregate_curves,
     extract_decision_rows,
     infer_hidden_states_for_trajectory,
-    leave_probability_curve,
     oracle_optimal_dwell_by_state,
     oracle_residency_deviation_by_patch,
-    normalized_curve_auc,
     observation_group_patch_labels,
     state_patch_labels,
 )
-from forage_rl.config import FIGURES_DIR, ensure_directories
+from forage_rl.config import FIGURES_DIR, ensure_output_directories
 from forage_rl.environments import resolve_effective_horizon
 from forage_rl.environments.maze import Maze, maze_from_builtin_maze_spec
 from forage_rl.utils import (
@@ -157,7 +155,7 @@ def _finalize_figure(
     filepath,
 ):
     if save:
-        ensure_directories()
+        ensure_output_directories()
         plt.savefig(filepath, dpi=150)
         print(f"Saved to {filepath}")
     if show:
@@ -1538,7 +1536,7 @@ def plot_recovery_heatmap(
     fig.tight_layout()
 
     if filepath is None:
-        ensure_directories()
+        ensure_output_directories()
         filepath = FIGURES_DIR / f"recovery_heatmap_{obs_tag.lower()}.png"
 
     _finalize_figure(fig, save=save, show=show, filepath=filepath)
@@ -1614,7 +1612,7 @@ def plot_recovery_heatmap_delta(
     fig.tight_layout()
 
     if filepath is None:
-        ensure_directories()
+        ensure_output_directories()
         filepath = FIGURES_DIR / "recovery_heatmap_fo_po_delta.png"
 
     _finalize_figure(fig, save=save, show=show, filepath=filepath)

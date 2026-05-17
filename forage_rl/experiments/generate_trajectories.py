@@ -7,7 +7,7 @@ from typing import TypedDict
 
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.agents.registry import Agent, NEURAL_CONTEXT_MODES, NeuralContextMode
-from forage_rl.config import DefaultParams, ensure_directories
+from forage_rl.config import DefaultParams, ensure_output_directories
 from forage_rl.environments import (
     Maze,
     load_builtin_maze_spec,
@@ -224,7 +224,7 @@ def run_generation_experiment(
     horizon: int | None = None,
 ) -> None:
     """Generate trajectories for one or more registered agents."""
-    ensure_directories()
+    ensure_output_directories()
 
     agent_types = registered_agents() if agent_types is None else agent_types
     batches = build_torch_batches(agent_types, device=device)

@@ -12,7 +12,7 @@ import numpy as np
 from forage_rl import RunDataset
 from forage_rl.agents import get_agent, registered_agents
 from forage_rl.agents.registry import Agent, PolicySpec
-from forage_rl.config import TRAJECTORIES_DIR, ensure_directories
+from forage_rl.config import TRAJECTORIES_DIR, ensure_output_directories
 from forage_rl.environments import SimpleMaze, load_builtin_maze_spec, resolve_effective_horizon
 from forage_rl.analysis.mvt import simple_true_mvt_optimal_prt
 from forage_rl.analysis.recovery import (
@@ -91,7 +91,7 @@ def _save_perturbation_run_dataset(
     num_pre_episodes: int,
     num_post_episodes: int,
 ) -> Path:
-    ensure_directories()
+    ensure_output_directories()
     artifact_name = (
         f"{artifact_prefix(maze_name, observable, horizon)}_{policy.agent.value}"
         f"{neural_context_suffix(policy.agent, policy.context_mode)}"

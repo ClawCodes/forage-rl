@@ -18,7 +18,7 @@ from forage_rl.config import (
     CHECKPOINTS_DIR,
     LOGPROBS_DIR,
     TRAJECTORIES_DIR,
-    ensure_directories,
+    ensure_output_directories,
 )
 from forage_rl.environments import resolve_effective_horizon
 from forage_rl.utils.artifact_names import (
@@ -191,7 +191,7 @@ def save_run_dataset(
     horizon: int | None = None,
 ) -> Path:
     """Save one run dataset as a `.npz` plus auxiliary JSON metadata."""
-    ensure_directories()
+    ensure_output_directories()
     resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     filepath = _run_dataset_path(
         agent,
@@ -323,7 +323,7 @@ def save_logprobs(
     horizon: int | None = None,
 ) -> Path:
     """Save log probability data to organized directory."""
-    ensure_directories()
+    ensure_output_directories()
     label = (
         f"source_{source_label(source, source_context_mode)}_eval_"
         f"{evaluator_label(evaluator)}"
