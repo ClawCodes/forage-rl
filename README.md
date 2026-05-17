@@ -112,7 +112,7 @@ python -m forage_rl.experiments.generate_trajectories --agents mbrl q_learning d
 `Trajectory` now means exactly one episode. One training run is stored as a
 `RunDataset`, which is the persisted unit under `data/trajectories/`.
 
-The canonical artifact pipeline now generates `100` episodes per run dataset by
+The canonical artifact pipeline now generates `200` episodes per run dataset by
 default so learning curves and aggregate trajectory plots reflect later-stage
 behavior instead of the first few episodes only.
 

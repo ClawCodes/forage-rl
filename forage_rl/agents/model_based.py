@@ -22,7 +22,7 @@ class MBRL(BaseAgent):
     def __init__(
         self,
         maze: Maze,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         gamma: float = DefaultParams.GAMMA,
         num_planning_steps: int = DefaultParams.NUM_PLANNING_STEPS,
         beta: float = DefaultParams.BETA,

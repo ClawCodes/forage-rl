@@ -32,10 +32,10 @@ def _parse_agents(values: list[str]) -> list[Agent]:
 def train_pretrained_agents(
     agent_types: list[Agent] | None = None,
     maze_name: str = "simple",
-    num_episodes: int = DefaultParams.NUM_EPISODES * 5,
+    num_episodes: int = DefaultParams.TRAINING_EPISODES * 5,
     observable: bool = True,
     device: str = "auto",
-    seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    seed: int = DefaultParams.DEFAULT_SEED,
     verbose: bool = True,
     context_mode: NeuralContextMode = "legacy_context",
     horizon: int | None = None,
@@ -52,7 +52,9 @@ def train_pretrained_agents(
                 f"Pretraining only supports neural agents, got {agent_type.value}."
             )
 
-        maze = Maze(maze_spec, seed=seed, horizon=resolved_horizon, observable=observable)
+        maze = Maze(
+            maze_spec, seed=seed, horizon=resolved_horizon, observable=observable
+        )
         agent = get_agent(
             agent_type,
             maze,
@@ -129,7 +131,7 @@ def main() -> None:
     parser.add_argument(
         "--num-episodes",
         type=int,
-        default=DefaultParams.NUM_EPISODES * 5,
+        default=DefaultParams.TRAINING_EPISODES * 5,
         help="Number of training episodes for each pretrained agent",
     )
     parser.add_argument(
@@ -157,7 +159,7 @@ def main() -> None:
     parser.add_argument(
         "--seed",
         type=int,
-        default=DefaultParams.FRESH_EVALUATOR_SEED,
+        default=DefaultParams.DEFAULT_SEED,
         help="Deterministic seed for pretraining",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress output")

@@ -27,7 +27,7 @@ class SRMBAgent(BaseSRAgent):
     def __init__(
         self,
         maze: Maze,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         gamma: float = DefaultParams.GAMMA,
         alpha_sr: float = DefaultParams.ALPHA_SR,
         alpha_w: float = DefaultParams.ALPHA_W,

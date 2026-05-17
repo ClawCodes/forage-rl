@@ -81,8 +81,8 @@ def selected_settings(
 def regenerate_artifacts(
     mazes: list[str] | None = None,
     observability: str = "all",
-    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
-    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
+    num_runs: int = DefaultParams.NUM_RUN_DATASETS,
+    num_episodes: int = DefaultParams.TRAINING_EPISODES,
     num_datasets: int | None = None,
     workers: int | None = None,
     device: str = "auto",
@@ -118,7 +118,7 @@ def regenerate_artifacts(
                 agent_types=neural_agents(),
                 maze_name=maze_name,
                 observable=observable,
-                num_episodes=DefaultParams.NUM_EPISODES * 5,
+                num_episodes=DefaultParams.TRAINING_EPISODES * 5,
                 device=device,
                 seed=seed,
                 verbose=verbose,
@@ -214,13 +214,13 @@ def main() -> None:
     parser.add_argument(
         "--num-runs",
         type=int,
-        default=DefaultParams.NUM_TRAINING_RUNS,
+        default=DefaultParams.NUM_RUN_DATASETS,
         help="Number of independent run datasets to generate per source agent.",
     )
     parser.add_argument(
         "--num-episodes",
         type=int,
-        default=DefaultParams.NUM_TRAINING_EPISODES,
+        default=DefaultParams.TRAINING_EPISODES,
         help="Episodes per generated run dataset.",
     )
     parser.add_argument(

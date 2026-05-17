@@ -20,7 +20,7 @@ class QLearning(BaseAgent):
     def __init__(
         self,
         maze: Maze,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         alpha: float = DefaultParams.ALPHA,
         gamma: float = DefaultParams.GAMMA,
         epsilon: float = DefaultParams.EPSILON,
@@ -106,7 +106,7 @@ class QLearningTime(BaseAgent):
     def __init__(
         self,
         maze,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         alpha: float = DefaultParams.ALPHA,
         gamma: float = DefaultParams.GAMMA,
         beta: float = DefaultParams.BETA,

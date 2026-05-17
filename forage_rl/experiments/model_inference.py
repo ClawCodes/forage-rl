@@ -128,7 +128,7 @@ def evaluate_run_dataset(
     evaluators: list[EvaluatorInput] | None = None,
     observable: bool = True,
     device: str = "auto",
-    seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    seed: int = DefaultParams.DEFAULT_SEED,
     source_context_mode: NeuralContextMode = "legacy_context",
     horizon: int | None = None,
 ) -> dict[EvaluatorSpec, np.ndarray]:
@@ -389,7 +389,7 @@ def run_inference_experiment(
     verbose: bool = True,
     workers: int | None = None,
     device: str = "auto",
-    base_seed: int = DefaultParams.FRESH_EVALUATOR_SEED,
+    base_seed: int = DefaultParams.DEFAULT_SEED,
     source_context_mode: NeuralContextMode = "legacy_context",
     horizon: int | None = None,
 ) -> None:
@@ -513,8 +513,8 @@ def main() -> None:
     parser.add_argument(
         "--seed",
         type=int,
-        default=DefaultParams.FRESH_EVALUATOR_SEED,
-        help="Deterministic seed for fresh neural evaluators",
+        default=DefaultParams.DEFAULT_SEED,
+        help="Deterministic base seed for reproducible evaluator initialization",
     )
     parser.add_argument(
         "--horizon",

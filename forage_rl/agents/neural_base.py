@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import abstractmethod
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import Any, TypedDict
 
 import numpy as np
 
@@ -77,7 +77,9 @@ class NeuralAgentBase(BaseAgent):
             )
         if np.isclose(alpha_value, resolved_learning_rate):
             return alpha_value
-        if np.isclose(resolved_learning_rate, float(DefaultParams.LEARNING_RATE)):
+        if np.isclose(
+            resolved_learning_rate, float(DefaultParams.NEURAL_LEARNING_RATE)
+        ):
             return alpha_value
         raise ValueError(
             "Neural agents treat alpha as a legacy alias for learning_rate; got "
@@ -89,11 +91,11 @@ class NeuralAgentBase(BaseAgent):
         self,
         maze: "Maze",
         *,
-        num_episodes: int = DefaultParams.NUM_EPISODES,
+        num_episodes: int = DefaultParams.TRAINING_EPISODES,
         alpha: float | None = None,
         gamma: float = DefaultParams.GAMMA,
         beta: float = DefaultParams.BETA,
-        learning_rate: float = DefaultParams.LEARNING_RATE,
+        learning_rate: float = DefaultParams.NEURAL_LEARNING_RATE,
         batch_size: int = DefaultParams.BATCH_SIZE,
         replay_capacity: int = DefaultParams.REPLAY_CAPACITY,
         target_update_interval: int = DefaultParams.TARGET_UPDATE_INTERVAL,
@@ -133,7 +135,7 @@ class NeuralAgentBase(BaseAgent):
             tuple(self.maze.valid_actions(state_idx))
             for state_idx in range(self.obs_dim)
         )
-        self.feature_schema_version = DefaultParams.NEURAL_FEATURE_SCHEMA_VERSION
+        self.feature_schema_version = DefaultParams.NEURAL_INPUT_SCHEMA_VERSION
         self.feature_schema_components = self._feature_components_for_context_mode(
             self.context_mode
         )
@@ -147,7 +149,7 @@ class NeuralAgentBase(BaseAgent):
         self.torch_device = self.torch.device(self.device)
         self.loss_fn = self.nn.SmoothL1Loss(reduction="none")
 
-        torch_seed = DefaultParams.FRESH_EVALUATOR_SEED if seed is None else seed
+        torch_seed = DefaultParams.DEFAULT_SEED if seed is None else seed
         self.torch.manual_seed(torch_seed)
         if self.device == "cuda":
             self.torch.cuda.manual_seed_all(torch_seed)

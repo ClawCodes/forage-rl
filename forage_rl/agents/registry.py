@@ -184,7 +184,7 @@ def _build_dqn_agent(maze, **kwargs) -> BaseAgent:
 
     return DQNAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         beta=kwargs.pop("beta", DefaultParams.BETA),
         **kwargs,
@@ -205,7 +205,7 @@ def _build_elman_agent(maze, **kwargs) -> BaseAgent:
 
     return ElmanAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         beta=kwargs.pop("beta", DefaultParams.BETA),
         sequence_length=kwargs.pop("sequence_length", default_sequence_length),
@@ -229,7 +229,7 @@ def _build_gru_agent(maze, **kwargs) -> BaseAgent:
 
     return GRUAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         beta=kwargs.pop("beta", DefaultParams.BETA),
         sequence_length=kwargs.pop("sequence_length", default_sequence_length),
@@ -253,7 +253,7 @@ def _build_lstm_agent(maze, **kwargs) -> BaseAgent:
 
     return LSTMAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         beta=kwargs.pop("beta", DefaultParams.BETA),
         sequence_length=kwargs.pop("sequence_length", default_sequence_length),
@@ -273,7 +273,7 @@ def _build_lstm_agent(maze, **kwargs) -> BaseAgent:
 def _build_mbrl_agent(maze, **kwargs) -> BaseAgent:
     return MBRL(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         **_filtered_kwargs(kwargs),
     )
@@ -282,7 +282,7 @@ def _build_mbrl_agent(maze, **kwargs) -> BaseAgent:
 def _build_q_learning_agent(maze, **kwargs) -> BaseAgent:
     return QLearningTime(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         alpha=kwargs.pop("alpha", DefaultParams.ALPHA),
         **_filtered_kwargs(kwargs),
     )
@@ -291,7 +291,7 @@ def _build_q_learning_agent(maze, **kwargs) -> BaseAgent:
 def _build_sr_td_agent(maze, **kwargs) -> BaseAgent:
     return SRTDAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
         alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
@@ -303,7 +303,7 @@ def _build_sr_td_agent(maze, **kwargs) -> BaseAgent:
 def _build_sr_mb_agent(maze, **kwargs) -> BaseAgent:
     return SRMBAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
         alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
@@ -316,7 +316,7 @@ def _build_sr_mb_agent(maze, **kwargs) -> BaseAgent:
 def _build_sr_dyna_agent(maze, **kwargs) -> BaseAgent:
     return SRDynaAgent(
         maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.NUM_EPISODES),
+        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
         gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
         alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
         alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),

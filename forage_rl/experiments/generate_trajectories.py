@@ -106,7 +106,9 @@ def _generate_single_run(task: GenerationTask) -> GenerationResult:
         configure_torch_worker(device)
 
     start = time.perf_counter()
-    maze = Maze(maze_spec, seed=run_seed, horizon=resolved_horizon, observable=observable)
+    maze = Maze(
+        maze_spec, seed=run_seed, horizon=resolved_horizon, observable=observable
+    )
     agent = get_agent(
         agent_type,
         maze,
@@ -213,8 +215,8 @@ def _execute_generation_tasks(
 def run_generation_experiment(
     agent_types: list[Agent] | None = None,
     maze_name: str = "simple",
-    num_runs: int = DefaultParams.NUM_TRAINING_RUNS,
-    num_episodes: int = DefaultParams.NUM_TRAINING_EPISODES,
+    num_runs: int = DefaultParams.NUM_RUN_DATASETS,
+    num_episodes: int = DefaultParams.TRAINING_EPISODES,
     observable: bool = True,
     verbose: bool = True,
     workers: int | None = None,
@@ -272,13 +274,13 @@ def main() -> None:
     parser.add_argument(
         "--num-runs",
         type=int,
-        default=DefaultParams.NUM_TRAINING_RUNS,
+        default=DefaultParams.NUM_RUN_DATASETS,
         help="Number of independent runs",
     )
     parser.add_argument(
         "--num-episodes",
         type=int,
-        default=DefaultParams.NUM_TRAINING_EPISODES,
+        default=DefaultParams.TRAINING_EPISODES,
         help="Episodes per run",
     )
     parser.add_argument(
