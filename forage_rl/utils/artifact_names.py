@@ -5,14 +5,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from forage_rl.agents.context import (
+    DEFAULT_NEURAL_CONTEXT_MODE,
+    context_mode_artifact_label,
+)
 from forage_rl.agents.registry import (
     Agent,
-    EvaluatorSpec,
-    NeuralContextMode,
-    canonical_agent,
-    context_mode_token,
     is_neural_agent,
-    legacy_alias_agents,
+)
+from forage_rl.agents.identities import (
+    EvaluatorMode,
+    EvaluatorIdentity,
+    resolve_agent_context_mode,
 )
 from forage_rl.environments import builtin_maze_horizon, resolve_effective_horizon
 
@@ -36,22 +40,14 @@ def artifact_prefix(
     return f"{maze_name}_{obs_tag(observable)}{horizon_suffix(maze_name, horizon)}"
 
 
-def neural_context_suffix(agent: Agent, context_mode: NeuralContextMode) -> str:
-    if not is_neural_agent(agent) or context_mode == "legacy_context":
+def neural_context_suffix(agent: Agent, context_mode: str | None = None) -> str:
+    effective_context = resolve_agent_context_mode(agent, context_mode)
+    if (
+        effective_context is None
+        or effective_context == DEFAULT_NEURAL_CONTEXT_MODE
+    ):
         return ""
-    return f"_{context_mode_token(context_mode)}"
-
-
-def load_candidate_agents(agent: Agent) -> tuple[Agent, ...]:
-    resolved = canonical_agent(agent)
-    return (resolved, *legacy_alias_agents(resolved))
-
-
-def existing_path(paths: list[Path]) -> Path:
-    for path in paths:
-        if path.exists():
-            return path
-    return paths[0]
+    return f"_{context_mode_artifact_label(effective_context)}"
 
 
 def extract_run_id(filepath: Path) -> int:
@@ -84,13 +80,12 @@ def run_dataset_filename(
     run_id: int,
     maze_name: str,
     observable: bool,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> str:
-    resolved = canonical_agent(agent)
     return (
-        f"{artifact_prefix(maze_name, observable, horizon)}_{resolved.value}"
-        f"{neural_context_suffix(resolved, context_mode)}_run_dataset_{run_id}.npz"
+        f"{artifact_prefix(maze_name, observable, horizon)}_{agent.value}"
+        f"{neural_context_suffix(agent, context_mode)}_run_dataset_{run_id}.npz"
     )
 
 
@@ -98,40 +93,41 @@ def checkpoint_label(
     agent: Agent,
     maze_name: str,
     observable: bool,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> str:
-    resolved = canonical_agent(agent)
     return (
-        f"{artifact_prefix(maze_name, observable, horizon)}_{resolved.value}"
-        f"{neural_context_suffix(resolved, context_mode)}_final"
+        f"{artifact_prefix(maze_name, observable, horizon)}_{agent.value}"
+        f"{neural_context_suffix(agent, context_mode)}_final"
     )
 
 
-def evaluator_label(evaluator: Agent | EvaluatorSpec) -> str:
+def evaluator_label(evaluator: Agent | EvaluatorIdentity) -> str:
     if isinstance(evaluator, Agent):
-        resolved = canonical_agent(evaluator)
-        return f"{resolved.value}_fresh"
-    resolved = canonical_agent(evaluator.agent)
-    if is_neural_agent(resolved) and evaluator.context_mode != "legacy_context":
-        return f"{resolved.value}_{context_mode_token(evaluator.context_mode)}_{evaluator.mode}"
-    return f"{resolved.value}_{evaluator.mode}"
+        return f"{evaluator.value}_fresh"
+    if (
+        is_neural_agent(evaluator.agent)
+        and evaluator.context_mode is not None
+        and evaluator.context_mode != DEFAULT_NEURAL_CONTEXT_MODE
+    ):
+        return f"{evaluator.agent.value}_{context_mode_artifact_label(evaluator.context_mode)}_{evaluator.mode.value}"
+    return f"{evaluator.agent.value}_{evaluator.mode.value}"
 
 
 def evaluator_label_for_agent(
     agent: Agent,
-    mode: str,
-    context_mode: NeuralContextMode,
+    mode: str | EvaluatorMode,
+    context_mode: str | None = None,
 ) -> str:
-    if is_neural_agent(agent) and context_mode != "legacy_context":
-        return f"{agent.value}_{context_mode_token(context_mode)}_{mode}"
-    return f"{agent.value}_{mode}"
+    mode_value = EvaluatorMode(mode).value
+    effective_context = resolve_agent_context_mode(agent, context_mode)
+    if (
+        effective_context is not None
+        and effective_context != DEFAULT_NEURAL_CONTEXT_MODE
+    ):
+        return f"{agent.value}_{context_mode_artifact_label(effective_context)}_{mode_value}"
+    return f"{agent.value}_{mode_value}"
 
 
-def source_label(source: Agent, context_mode: NeuralContextMode) -> str:
-    resolved = canonical_agent(source)
-    return f"{resolved.value}{neural_context_suffix(resolved, context_mode)}"
-
-
-def source_label_for_agent(source: Agent, context_mode: NeuralContextMode) -> str:
+def source_label(source: Agent, context_mode: str | None = None) -> str:
     return f"{source.value}{neural_context_suffix(source, context_mode)}"
