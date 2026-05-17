@@ -9,11 +9,9 @@ import numpy as np
 from forage_rl.types import RunDataset, TimedTransition, Trajectory, Transition
 from forage_rl.agents.registry import (
     Agent,
-    EvaluatorSpec,
-    NeuralContextMode,
-    canonical_agent,
     is_neural_agent,
 )
+from forage_rl.agents.identities import EvaluatorIdentity, resolve_agent_context_mode
 from forage_rl.config import (
     CHECKPOINTS_DIR,
     LOGPROBS_DIR,
@@ -26,16 +24,13 @@ from forage_rl.utils.artifact_names import (
     checkpoint_label,
     evaluator_label,
     evaluator_label_for_agent,
-    existing_path,
     extract_run_id,
     is_canonical_run_dataset_file,
-    load_candidate_agents,
     matches_exact_horizon_prefix,
     neural_context_suffix,
     obs_tag,
     run_dataset_filename,
     source_label,
-    source_label_for_agent,
 )
 
 
@@ -50,31 +45,12 @@ def _required_horizon(metadata: dict[str, object], *, artifact_label: str) -> in
     return horizon
 
 
-def _run_dataset_load_paths(
-    agent: Agent,
-    run_id: int,
-    maze_name: str,
-    observable: bool,
-    context_mode: NeuralContextMode = "legacy_context",
-    horizon: int | None = None,
-) -> list[Path]:
-    return [
-        TRAJECTORIES_DIR
-        / (
-            f"{artifact_prefix(maze_name, observable, horizon)}_{candidate.value}"
-            f"{neural_context_suffix(candidate, context_mode)}"
-            f"_run_dataset_{run_id}.npz"
-        )
-        for candidate in load_candidate_agents(agent)
-    ]
-
-
 def _run_dataset_path(
     agent: Agent,
     run_id: int,
     maze_name: str,
     observable: bool,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> Path:
     return TRAJECTORIES_DIR / run_dataset_filename(
@@ -103,28 +79,11 @@ def _transition_class(name: str) -> type[Transition]:
     raise ValueError(f"Unsupported transition type {name!r}.")
 
 
-def _checkpoint_load_paths(
-    agent: Agent,
-    maze_name: str,
-    observable: bool,
-    context_mode: NeuralContextMode = "legacy_context",
-    horizon: int | None = None,
-) -> list[Path]:
-    return [
-        CHECKPOINTS_DIR
-        / (
-            f"{artifact_prefix(maze_name, observable, horizon)}_{candidate.value}"
-            f"{neural_context_suffix(candidate, context_mode)}_final.pt"
-        )
-        for candidate in load_candidate_agents(agent)
-    ]
-
-
 def checkpoint_path(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> Path:
     """Return the canonical checkpoint path for a pretrained neural agent."""
@@ -145,7 +104,7 @@ def checkpoint_metadata_path(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> Path:
     """Return the canonical checkpoint metadata path."""
@@ -166,18 +125,16 @@ def resolve_checkpoint_load_path(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> Path:
-    """Resolve the first existing checkpoint path, falling back to legacy aliases."""
-    return existing_path(
-        _checkpoint_load_paths(
-            agent,
-            maze_name,
-            observable,
-            context_mode=context_mode,
-            horizon=horizon,
-        )
+    """Return the expected checkpoint path for a pretrained neural agent."""
+    return checkpoint_path(
+        agent,
+        maze_name,
+        observable,
+        context_mode=context_mode,
+        horizon=horizon,
     )
 
 
@@ -187,7 +144,7 @@ def save_run_dataset(
     run_id: int,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> Path:
     """Save one run dataset as a `.npz` plus auxiliary JSON metadata."""
@@ -214,7 +171,7 @@ def save_run_dataset(
     metadata_path = _run_dataset_metadata_path(filepath)
     metadata = {
         "container_type": "run_dataset",
-        "agent": canonical_agent(agent).value,
+        "agent": agent.value,
         "maze_name": maze_name,
         "observable": observable,
         "horizon": resolved_horizon,
@@ -222,7 +179,7 @@ def save_run_dataset(
         "num_transitions": run_dataset.num_transitions(),
     }
     if is_neural_agent(agent):
-        metadata["context_mode"] = context_mode
+        metadata["context_mode"] = str(resolve_agent_context_mode(agent, context_mode))
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return filepath
 
@@ -232,19 +189,17 @@ def load_run_dataset(
     run_id: int,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> RunDataset:
     """Load one run dataset from the current `.npz` format."""
-    filepath = existing_path(
-        _run_dataset_load_paths(
-            agent,
-            run_id,
-            maze_name,
-            observable,
-            context_mode=context_mode,
-            horizon=horizon,
-        )
+    filepath = _run_dataset_path(
+        agent,
+        run_id,
+        maze_name,
+        observable,
+        context_mode=context_mode,
+        horizon=horizon,
     )
     with np.load(filepath, allow_pickle=True) as payload:
         transition_name = str(payload["__transition_type__"].item())
@@ -264,19 +219,17 @@ def load_run_dataset_metadata(
     run_id: int,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> dict[str, object]:
     """Load auxiliary metadata for one saved run dataset."""
-    filepath = existing_path(
-        _run_dataset_load_paths(
-            agent,
-            run_id,
-            maze_name,
-            observable,
-            context_mode=context_mode,
-            horizon=horizon,
-        )
+    filepath = _run_dataset_path(
+        agent,
+        run_id,
+        maze_name,
+        observable,
+        context_mode=context_mode,
+        horizon=horizon,
     )
     metadata_path = _run_dataset_metadata_path(filepath)
     if not metadata_path.exists():
@@ -292,7 +245,7 @@ def load_checkpoint_metadata(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> dict[str, object]:
     """Load auxiliary metadata for one saved checkpoint."""
@@ -315,11 +268,11 @@ def load_checkpoint_metadata(
 def save_logprobs(
     data: np.ndarray,
     source: Agent,
-    evaluator: Agent | EvaluatorSpec,
+    evaluator: Agent | EvaluatorIdentity,
     run_id: int,
     maze_name: str,
     observable: bool = True,
-    source_context_mode: NeuralContextMode = "legacy_context",
+    source_context_mode: str | None = None,
     horizon: int | None = None,
 ) -> Path:
     """Save log probability data to organized directory."""
@@ -339,40 +292,34 @@ def save_logprobs(
 
 def load_logprobs(
     source: Agent,
-    evaluator: Agent | EvaluatorSpec,
+    evaluator: Agent | EvaluatorIdentity,
     run_id: int,
     maze_name: str,
     observable: bool = True,
     evaluator_mode: str = "fresh",
-    source_context_mode: NeuralContextMode = "legacy_context",
-    evaluator_context_mode: NeuralContextMode = "legacy_context",
+    source_context_mode: str | None = None,
+    evaluator_context_mode: str | None = None,
     horizon: int | None = None,
 ) -> np.ndarray:
     """Load log probability data from organized directory."""
-    source_candidates = load_candidate_agents(source)
     if isinstance(evaluator, Agent):
         evaluator_mode_value = evaluator_mode
         evaluator_context = evaluator_context_mode
-        evaluator_candidates = load_candidate_agents(evaluator)
+        evaluator_agent = evaluator
     else:
         evaluator_mode_value = evaluator.mode
         evaluator_context = evaluator.context_mode
-        evaluator_candidates = load_candidate_agents(evaluator.agent)
+        evaluator_agent = evaluator.agent
 
-    candidate_paths: list[Path] = []
-    for source_candidate in source_candidates:
-        for evaluator_candidate in evaluator_candidates:
-            label = (
-                f"source_{source_label_for_agent(source_candidate, source_context_mode)}"
-                f"_eval_{evaluator_label_for_agent(evaluator_candidate, evaluator_mode_value, evaluator_context)}"
-            )
-            filename = (
-                f"{artifact_prefix(maze_name, observable, horizon)}_{label}"
-                f"_log_likelihoods_{run_id}.npy"
-            )
-            candidate_paths.append(LOGPROBS_DIR / filename)
-
-    filepath = existing_path(candidate_paths)
+    label = (
+        f"source_{source_label(source, source_context_mode)}"
+        f"_eval_{evaluator_label_for_agent(evaluator_agent, evaluator_mode_value, evaluator_context)}"
+    )
+    filename = (
+        f"{artifact_prefix(maze_name, observable, horizon)}_{label}"
+        f"_log_likelihoods_{run_id}.npy"
+    )
+    filepath = LOGPROBS_DIR / filename
     return np.load(filepath, allow_pickle=True)
 
 
@@ -380,7 +327,7 @@ def list_run_dataset_files(
     agent: Optional[Agent] = None,
     maze_name: Optional[str] = None,
     observable: Optional[bool] = None,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> list[Path]:
     """List all saved run-dataset files in the data directory."""
@@ -410,27 +357,22 @@ def list_run_dataset_files(
             or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
         )
 
-    paths: set[Path] = set()
-    for candidate in load_candidate_agents(agent):
-        agent_part = (
-            f"{candidate.value}{neural_context_suffix(candidate, context_mode)}"
-        )
-        pattern = f"{prefix}_{agent_part}*_run_dataset_*.npz"
-        paths.update(
-            path
-            for path in TRAJECTORIES_DIR.glob(pattern)
-            if is_canonical_run_dataset_file(path)
-            if (not exact_prefix)
-            or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
-        )
-    return sorted(paths)
+    agent_part = f"{agent.value}{neural_context_suffix(agent, context_mode)}"
+    pattern = f"{prefix}_{agent_part}*_run_dataset_*.npz"
+    return sorted(
+        path
+        for path in TRAJECTORIES_DIR.glob(pattern)
+        if is_canonical_run_dataset_file(path)
+        if (not exact_prefix)
+        or matches_exact_horizon_prefix(path, prefix, horizon=horizon)
+    )
 
 
 def list_run_dataset_run_ids(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> list[int]:
     """Return sorted saved run ids for an agent/maze combination."""
@@ -448,28 +390,11 @@ def list_run_dataset_run_ids(
     )
 
 
-# Re-export the extracted naming helpers to keep the current private module API stable.
-_obs_tag = obs_tag
-_artifact_prefix = artifact_prefix
-_neural_context_suffix = neural_context_suffix
-_load_candidate_agents = load_candidate_agents
-_existing_path = existing_path
-_extract_run_id = extract_run_id
-_is_canonical_run_dataset_file = is_canonical_run_dataset_file
-_matches_exact_horizon_prefix = matches_exact_horizon_prefix
-_run_dataset_filename = run_dataset_filename
-_checkpoint_label = checkpoint_label
-_evaluator_label = evaluator_label
-_evaluator_label_for_agent = evaluator_label_for_agent
-_source_label = source_label
-_source_label_for_agent = source_label_for_agent
-
-
 def get_run_count(
     agent: Agent,
     maze_name: str,
     observable: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: str | None = None,
     horizon: int | None = None,
 ) -> int:
     """Get the number of saved run datasets for an agent and maze."""

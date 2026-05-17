@@ -1,354 +1,161 @@
-"""Shared registry mapping agent names to constructor factories."""
+"""Agent names, metadata, and constructor dispatch."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
-from pathlib import Path
-from typing import Callable, Literal
+from enum import Enum, StrEnum, auto
+from typing import Any, Final
 
 from forage_rl.agents.base import BaseAgent
+from forage_rl.agents.dqn import DQNAgent
 from forage_rl.agents.model_based import MBRL
 from forage_rl.agents.q_learning import QLearningTime
+from forage_rl.agents.recurrent import ElmanAgent, GRUAgent, LSTMAgent
 from forage_rl.agents.sr_dyna import SRDynaAgent
 from forage_rl.agents.sr_mb import SRMBAgent
 from forage_rl.agents.sr_td import SRTDAgent
-from forage_rl.config import DefaultParams
 
-AgentFactory = Callable[..., BaseAgent]
-
-_NON_CONSTRUCTOR_KWARGS = {"device", "init_mode", "checkpoint_path", "context_mode"}
+_NEURAL_ONLY_KWARGS: Final[frozenset[str]] = frozenset(
+    {
+        "batch_size",
+        "burn_in",
+        "checkpoint_path",
+        "checkpoint_path_override",
+        "context_mode",
+        "device",
+        "gradient_clip",
+        "init_mode",
+        "learning_rate",
+        "recurrent_hidden_size",
+        "recurrent_num_layers",
+        "replay_capacity",
+        "sequence_length",
+        "target_update_interval",
+        "warmup_steps",
+    }
+)
 
 
 class Agent(StrEnum):
-    MBRL = "mbrl"
-    QLearning = "q_learning"
-    SRTD = "sr_td"
-    SRMB = "sr_mb"
-    SRDyna = "sr_dyna"
-    DQN = "dqn"
-    ELMAN = "elman"
-    GRU = "gru"
-    LSTM = "lstm"
-    DRQN = "drqn"
+    MBRL = auto()
+    Q_LEARNING = auto()
+    SR_TD = auto()
+    SR_MB = auto()
+    SR_DYNA = auto()
+    DQN = auto()
+    ELMAN = auto()
+    GRU = auto()
+    LSTM = auto()
 
 
-NeuralContextMode = Literal[
-    "observation_only",
-    "prev_reward",
-    "prev_reward_time",
-    "legacy_context",
-]
-NEURAL_CONTEXT_MODES: tuple[NeuralContextMode, ...] = (
-    "observation_only",
-    "prev_reward",
-    "prev_reward_time",
-    "legacy_context",
-)
-NEURAL_CONTEXT_MODE_TOKENS: dict[NeuralContextMode, str] = {
-    "observation_only": "obs_only",
-    "prev_reward": "prev_reward",
-    "prev_reward_time": "prev_reward_time",
-    "legacy_context": "legacy_context",
-}
-NEURAL_CONTEXT_MODE_DISPLAY_LABELS: dict[NeuralContextMode, str] = {
-    "observation_only": "obs-only",
-    "prev_reward": "obs+prev_reward",
-    "prev_reward_time": "obs+prev_reward+time",
-    "legacy_context": "legacy-context",
-}
-CANONICAL_AGENT_ALIASES: dict[Agent, Agent] = {
-    Agent.DRQN: Agent.LSTM,
-}
-CANONICAL_AGENT_ORDER: tuple[Agent, ...] = (
-    Agent.MBRL,
-    Agent.QLearning,
-    Agent.SRTD,
-    Agent.SRMB,
-    Agent.SRDyna,
-    Agent.DQN,
-    Agent.ELMAN,
-    Agent.GRU,
-    Agent.LSTM,
-)
-CANONICAL_NEURAL_AGENTS: tuple[Agent, ...] = (
-    Agent.DQN,
-    Agent.ELMAN,
-    Agent.GRU,
-    Agent.LSTM,
-)
-CANONICAL_RECURRENT_AGENTS: tuple[Agent, ...] = (
-    Agent.ELMAN,
-    Agent.GRU,
-    Agent.LSTM,
-)
+class _AgentKind(Enum):
+    TABULAR = auto()
+    NEURAL = auto()
+    RECURRENT = auto()
 
 
-def canonical_agent(agent: Agent) -> Agent:
-    """Map compatibility aliases onto their canonical agent names."""
-    return CANONICAL_AGENT_ALIASES.get(agent, agent)
+@dataclass(frozen=True)
+class _AgentRegistration:
+    """Everything get_agent needs to construct one registered agent."""
 
+    factory: Callable[..., BaseAgent]
+    kind: _AgentKind
+    display_label: str
 
-def legacy_alias_agents(agent: Agent) -> tuple[Agent, ...]:
-    """Return legacy aliases that may exist on disk for a canonical agent."""
-    if canonical_agent(agent) == Agent.LSTM:
-        return (Agent.DRQN,)
-    return ()
+    @property
+    def is_neural(self) -> bool:
+        return self.kind in {_AgentKind.NEURAL, _AgentKind.RECURRENT}
+
+    @property
+    def is_recurrent(self) -> bool:
+        return self.kind == _AgentKind.RECURRENT
 
 
 def is_neural_agent(agent: Agent) -> bool:
     """Return whether an agent is backed by PyTorch."""
-    return canonical_agent(agent) in CANONICAL_NEURAL_AGENTS
+    return _AGENT_REGISTRY[agent].is_neural
 
 
 def agent_display_label(agent: Agent) -> str:
-    """Return the canonical display label for an agent."""
-    resolved = canonical_agent(agent)
-    if resolved == Agent.QLearning:
-        return "Q-Learning"
-    return resolved.value.replace("_", "-").upper()
+    """Return the display label for an agent."""
+    return _AGENT_REGISTRY[agent].display_label
 
 
 def neural_agents() -> list[Agent]:
-    """Return canonical neural-agent names without legacy aliases."""
-    return list(CANONICAL_NEURAL_AGENTS)
+    """Return neural-agent names."""
+    return [agent for agent, spec in _AGENT_REGISTRY.items() if spec.is_neural]
 
 
 def recurrent_agents() -> list[Agent]:
-    """Return canonical recurrent-agent names without legacy aliases."""
-    return list(CANONICAL_RECURRENT_AGENTS)
+    """Return recurrent-agent names."""
+    return [agent for agent, spec in _AGENT_REGISTRY.items() if spec.is_recurrent]
 
 
-def validate_context_mode(context_mode: str) -> NeuralContextMode:
-    if context_mode not in NEURAL_CONTEXT_MODES:
-        raise ValueError(
-            f"Unsupported context_mode {context_mode!r}. Expected one of "
-            f"{', '.join(NEURAL_CONTEXT_MODES)}."
-        )
-    return context_mode
-
-
-def context_mode_token(context_mode: NeuralContextMode) -> str:
-    return NEURAL_CONTEXT_MODE_TOKENS[context_mode]
-
-
-def context_mode_display_label(context_mode: NeuralContextMode) -> str:
-    return NEURAL_CONTEXT_MODE_DISPLAY_LABELS[context_mode]
-
-
-@dataclass(frozen=True)
-class PolicySpec:
-    agent: Agent
-    context_mode: NeuralContextMode = "legacy_context"
-
-    @property
-    def artifact_label(self) -> str:
-        resolved = canonical_agent(self.agent)
-        if is_neural_agent(resolved) and self.context_mode != "legacy_context":
-            return f"{resolved.value}_{context_mode_token(self.context_mode)}"
-        return resolved.value
-
-    @property
-    def display_label(self) -> str:
-        base = agent_display_label(self.agent)
-        if is_neural_agent(self.agent):
-            return f"{base} ({context_mode_display_label(self.context_mode)})"
-        return base
-
-
-@dataclass(frozen=True)
-class EvaluatorSpec:
-    agent: Agent
-    mode: Literal["fresh", "pretrained"] = "fresh"
-    checkpoint_path: Path | None = None
-    context_mode: NeuralContextMode = "legacy_context"
-
-    @property
-    def label(self) -> str:
-        resolved = canonical_agent(self.agent)
-        if is_neural_agent(resolved) and self.context_mode != "legacy_context":
-            return (
-                f"{resolved.value}_{context_mode_token(self.context_mode)}_{self.mode}"
-            )
-        return f"{resolved.value}_{self.mode}"
-
-
-def _filtered_kwargs(kwargs: dict) -> dict:
+def _drop_neural_only_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     return {
-        key: value
-        for key, value in kwargs.items()
-        if key not in _NON_CONSTRUCTOR_KWARGS
+        key: value for key, value in kwargs.items() if key not in _NEURAL_ONLY_KWARGS
     }
 
 
-def _build_dqn_agent(maze, **kwargs) -> BaseAgent:
-    from forage_rl.agents.dqn import DQNAgent
-
-    return DQNAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        **kwargs,
-    )
-
-
-def _recurrent_defaults(maze) -> tuple[int, int]:
-    return (
-        DefaultParams.RECURRENT_SEQUENCE_LENGTH,
-        DefaultParams.RECURRENT_BURN_IN,
-    )
-
-
-def _build_elman_agent(maze, **kwargs) -> BaseAgent:
-    from forage_rl.agents.recurrent import ElmanAgent
-
-    default_sequence_length, default_burn_in = _recurrent_defaults(maze)
-
-    return ElmanAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        sequence_length=kwargs.pop("sequence_length", default_sequence_length),
-        burn_in=kwargs.pop("burn_in", default_burn_in),
-        recurrent_hidden_size=kwargs.pop(
-            "recurrent_hidden_size",
-            DefaultParams.RECURRENT_HIDDEN_SIZE,
-        ),
-        recurrent_num_layers=kwargs.pop(
-            "recurrent_num_layers",
-            DefaultParams.RECURRENT_NUM_LAYERS,
-        ),
-        **kwargs,
-    )
-
-
-def _build_gru_agent(maze, **kwargs) -> BaseAgent:
-    from forage_rl.agents.recurrent import GRUAgent
-
-    default_sequence_length, default_burn_in = _recurrent_defaults(maze)
-
-    return GRUAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        sequence_length=kwargs.pop("sequence_length", default_sequence_length),
-        burn_in=kwargs.pop("burn_in", default_burn_in),
-        recurrent_hidden_size=kwargs.pop(
-            "recurrent_hidden_size",
-            DefaultParams.RECURRENT_HIDDEN_SIZE,
-        ),
-        recurrent_num_layers=kwargs.pop(
-            "recurrent_num_layers",
-            DefaultParams.RECURRENT_NUM_LAYERS,
-        ),
-        **kwargs,
-    )
-
-
-def _build_lstm_agent(maze, **kwargs) -> BaseAgent:
-    from forage_rl.agents.recurrent import LSTMAgent
-
-    default_sequence_length, default_burn_in = _recurrent_defaults(maze)
-
-    return LSTMAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        sequence_length=kwargs.pop("sequence_length", default_sequence_length),
-        burn_in=kwargs.pop("burn_in", default_burn_in),
-        recurrent_hidden_size=kwargs.pop(
-            "recurrent_hidden_size",
-            DefaultParams.RECURRENT_HIDDEN_SIZE,
-        ),
-        recurrent_num_layers=kwargs.pop(
-            "recurrent_num_layers",
-            DefaultParams.RECURRENT_NUM_LAYERS,
-        ),
-        **kwargs,
-    )
-
-
-def _build_mbrl_agent(maze, **kwargs) -> BaseAgent:
-    return MBRL(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        **_filtered_kwargs(kwargs),
-    )
-
-
-def _build_q_learning_agent(maze, **kwargs) -> BaseAgent:
-    return QLearningTime(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        alpha=kwargs.pop("alpha", DefaultParams.ALPHA),
-        **_filtered_kwargs(kwargs),
-    )
-
-
-def _build_sr_td_agent(maze, **kwargs) -> BaseAgent:
-    return SRTDAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
-        alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        **_filtered_kwargs(kwargs),
-    )
-
-
-def _build_sr_mb_agent(maze, **kwargs) -> BaseAgent:
-    return SRMBAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
-        alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
-        alpha_pi=kwargs.pop("alpha_pi", DefaultParams.ALPHA_PI),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        **_filtered_kwargs(kwargs),
-    )
-
-
-def _build_sr_dyna_agent(maze, **kwargs) -> BaseAgent:
-    return SRDynaAgent(
-        maze,
-        num_episodes=kwargs.pop("num_episodes", DefaultParams.TRAINING_EPISODES),
-        gamma=kwargs.pop("gamma", DefaultParams.GAMMA),
-        alpha_sr=kwargs.pop("alpha_sr", DefaultParams.ALPHA_SR),
-        alpha_w=kwargs.pop("alpha_w", DefaultParams.ALPHA_W),
-        beta=kwargs.pop("beta", DefaultParams.BETA),
-        k_replay=kwargs.pop("k_replay", DefaultParams.K_REPLAY),
-        **_filtered_kwargs(kwargs),
-    )
-
-
-AGENT_REGISTRY: dict[Agent, AgentFactory] = {
-    Agent.MBRL: _build_mbrl_agent,
-    Agent.QLearning: _build_q_learning_agent,
-    Agent.SRTD: _build_sr_td_agent,
-    Agent.SRMB: _build_sr_mb_agent,
-    Agent.SRDyna: _build_sr_dyna_agent,
-    Agent.DQN: _build_dqn_agent,
-    Agent.ELMAN: _build_elman_agent,
-    Agent.GRU: _build_gru_agent,
-    Agent.LSTM: _build_lstm_agent,
+_AGENT_REGISTRY: Final[dict[Agent, _AgentRegistration]] = {
+    Agent.MBRL: _AgentRegistration(
+        MBRL,
+        _AgentKind.TABULAR,
+        "MBRL",
+    ),
+    Agent.Q_LEARNING: _AgentRegistration(
+        QLearningTime,
+        _AgentKind.TABULAR,
+        "Q-Learning",
+    ),
+    Agent.SR_TD: _AgentRegistration(
+        SRTDAgent,
+        _AgentKind.TABULAR,
+        "SR-TD",
+    ),
+    Agent.SR_MB: _AgentRegistration(
+        SRMBAgent,
+        _AgentKind.TABULAR,
+        "SR-MB",
+    ),
+    Agent.SR_DYNA: _AgentRegistration(
+        SRDynaAgent,
+        _AgentKind.TABULAR,
+        "SR-DYNA",
+    ),
+    Agent.DQN: _AgentRegistration(
+        DQNAgent,
+        _AgentKind.NEURAL,
+        "DQN",
+    ),
+    Agent.ELMAN: _AgentRegistration(
+        ElmanAgent,
+        _AgentKind.RECURRENT,
+        "ELMAN",
+    ),
+    Agent.GRU: _AgentRegistration(
+        GRUAgent,
+        _AgentKind.RECURRENT,
+        "GRU",
+    ),
+    Agent.LSTM: _AgentRegistration(
+        LSTMAgent,
+        _AgentKind.RECURRENT,
+        "LSTM",
+    ),
 }
 
 
 def get_agent(name: Agent, maze, **kwargs) -> BaseAgent:
-    resolved = canonical_agent(name)
-    if resolved not in AGENT_REGISTRY:
+    registration = _AGENT_REGISTRY.get(name)
+    if registration is None:
         raise ValueError(
-            "Unknown agent: "
-            f"{name!r}. Available canonical agents: {list(CANONICAL_AGENT_ORDER)}. "
-            "Legacy alias: 'drqn' -> 'lstm'."
+            f"Unknown agent: {name!r}. Available agents: {list(_AGENT_REGISTRY)}."
         )
-    return AGENT_REGISTRY[resolved](maze, **kwargs)
+    remaining_kwargs = (
+        kwargs if registration.is_neural else _drop_neural_only_kwargs(kwargs)
+    )
+    return registration.factory(maze, **remaining_kwargs)
 
 
 def registered_agents() -> list[Agent]:
-    return list(CANONICAL_AGENT_ORDER)
+    return list(_AGENT_REGISTRY)

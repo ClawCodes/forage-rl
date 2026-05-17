@@ -9,12 +9,16 @@ import numpy as np
 
 from forage_rl.types import RunDataset
 from forage_rl.agents import get_agent, registered_agents
-from forage_rl.agents.registry import (
-    Agent,
-    EvaluatorSpec,
+from forage_rl.agents.context import (
+    DEFAULT_NEURAL_CONTEXT_MODE,
     NEURAL_CONTEXT_MODES,
     NeuralContextMode,
+    validate_context_mode,
 )
+from forage_rl.agents.registry import (
+    Agent,
+)
+from forage_rl.agents.identities import EvaluatorMode, EvaluatorIdentity
 from forage_rl.config import DefaultParams
 from forage_rl.config import ensure_output_directories
 from forage_rl.environments import (
@@ -36,12 +40,12 @@ from forage_rl.utils import (
 from forage_rl.utils.torch_support import configure_torch_worker
 
 
-EvaluatorInput = Agent | EvaluatorSpec
+EvaluatorInput = Agent | EvaluatorIdentity
 InferenceTask = tuple[
     Agent,
     int,
     str,
-    tuple[EvaluatorSpec, ...],
+    tuple[EvaluatorIdentity, ...],
     bool,
     str,
     int,
@@ -56,41 +60,51 @@ def _parse_agents(values: list[str]) -> list[Agent]:
     return [Agent(value) for value in values]
 
 
-def _normalize_evaluator(evaluator: EvaluatorInput) -> EvaluatorSpec:
-    if isinstance(evaluator, EvaluatorSpec):
+def _normalize_evaluator(evaluator: EvaluatorInput) -> EvaluatorIdentity:
+    if isinstance(evaluator, EvaluatorIdentity):
         return evaluator
-    return EvaluatorSpec(agent=evaluator, mode="fresh")
+    return EvaluatorIdentity(agent=evaluator, mode=EvaluatorMode.FRESH)
 
 
 def _parse_evaluators(
     values: list[str],
-    neural_context_mode: NeuralContextMode = "legacy_context",
+    neural_context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
 ) -> list[EvaluatorInput]:
     if values == ["all"]:
-        return registered_agents()
+        return [
+            EvaluatorIdentity(agent=agent, context_mode=neural_context_mode)
+            if is_neural_agent(agent)
+            else agent
+            for agent in registered_agents()
+        ]
 
     evaluators: list[EvaluatorInput] = []
     for value in values:
-        if ":" not in value:
-            evaluators.append(Agent(value))
-            continue
-
-        agent_name, mode = value.split(":", maxsplit=1)
+        agent_name, mode = (
+            value.split(":", maxsplit=1) if ":" in value else (value, "fresh")
+        )
         agent = Agent(agent_name)
-        if mode not in {"fresh", "pretrained"}:
+        try:
+            evaluator_mode = EvaluatorMode(mode)
+        except ValueError as exc:
             raise ValueError(
                 f"Unsupported evaluator mode {mode!r}. Expected fresh or pretrained."
-            )
-        if mode == "pretrained" and not is_neural_agent(agent):
+            ) from exc
+        if evaluator_mode == EvaluatorMode.PRETRAINED and not is_neural_agent(agent):
             raise ValueError(
                 f"Pretrained evaluators are only supported for neural agents, got {agent.value}."
             )
-        context_mode = (
-            neural_context_mode if is_neural_agent(agent) else "legacy_context"
-        )
-        evaluators.append(
-            EvaluatorSpec(agent=agent, mode=mode, context_mode=context_mode)
-        )
+        context_mode = neural_context_mode if is_neural_agent(agent) else None
+        if context_mode is None and evaluator_mode == EvaluatorMode.FRESH:
+            evaluators.append(agent)
+        else:
+            evaluators.append(
+                EvaluatorIdentity(
+                    agent=agent,
+                    mode=evaluator_mode,
+                    context_mode=context_mode,
+                )
+            )
 
     return evaluators
 
@@ -102,11 +116,11 @@ def _build_evaluator_agents(
     device: str,
     seed: int,
     horizon: int | None = None,
-) -> dict[EvaluatorSpec, object]:
+) -> dict[EvaluatorIdentity, object]:
     """Instantiate one evaluator agent per spec for reuse across a run."""
     resolved_horizon = resolve_effective_horizon(maze_name, horizon)
     maze_spec = load_builtin_maze_spec(maze_name)
-    evaluator_agents: dict[EvaluatorSpec, object] = {}
+    evaluator_agents: dict[EvaluatorIdentity, object] = {}
     for evaluator in (_normalize_evaluator(item) for item in evaluators):
         if is_neural_agent(evaluator.agent):
             configure_torch_worker(device)
@@ -129,9 +143,9 @@ def evaluate_run_dataset(
     observable: bool = True,
     device: str = "auto",
     seed: int = DefaultParams.DEFAULT_SEED,
-    source_context_mode: NeuralContextMode = "legacy_context",
+    source_context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
     horizon: int | None = None,
-) -> dict[EvaluatorSpec, np.ndarray]:
+) -> dict[EvaluatorIdentity, np.ndarray]:
     """Evaluate one run dataset with persistent per-run evaluator state."""
     if evaluators is None:
         evaluators = registered_agents()
@@ -145,7 +159,7 @@ def evaluate_run_dataset(
         seed=seed,
         horizon=resolved_horizon,
     )
-    results: dict[EvaluatorSpec, list[np.ndarray]] = {
+    results: dict[EvaluatorIdentity, list[np.ndarray]] = {
         evaluator: [] for evaluator in evaluator_agents
     }
 
@@ -161,24 +175,16 @@ def _select_run_ids(
     maze_name: str,
     observable: bool,
     num_datasets: Optional[int],
-    source_context_mode: NeuralContextMode = "legacy_context",
+    source_context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
     horizon: int | None = None,
 ) -> list[int]:
-    if is_neural_agent(source) and source_context_mode != "legacy_context":
-        run_ids = list_run_dataset_run_ids(
-            source,
-            maze_name,
-            observable,
-            context_mode=source_context_mode,
-            horizon=horizon,
-        )
-    else:
-        run_ids = list_run_dataset_run_ids(
-            source,
-            maze_name,
-            observable,
-            horizon=horizon,
-        )
+    run_ids = list_run_dataset_run_ids(
+        source,
+        maze_name,
+        observable,
+        context_mode=source_context_mode,
+        horizon=horizon,
+    )
     if num_datasets is None:
         return run_ids
     return run_ids[:num_datasets]
@@ -390,7 +396,7 @@ def run_inference_experiment(
     workers: int | None = None,
     device: str = "auto",
     base_seed: int = DefaultParams.DEFAULT_SEED,
-    source_context_mode: NeuralContextMode = "legacy_context",
+    source_context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
     horizon: int | None = None,
 ) -> None:
     """Run the full model inference experiment."""
@@ -506,9 +512,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--context-mode",
-        choices=list(NEURAL_CONTEXT_MODES),
-        default="legacy_context",
-        help="Neural input context mode for source/evaluator neural policies.",
+        type=validate_context_mode,
+        default=DEFAULT_NEURAL_CONTEXT_MODE,
+        help=(
+            "Neural input context mode for source/evaluator neural policies. "
+            f"Valid modes: {', '.join(NEURAL_CONTEXT_MODES)}."
+        ),
     )
     parser.add_argument(
         "--seed",

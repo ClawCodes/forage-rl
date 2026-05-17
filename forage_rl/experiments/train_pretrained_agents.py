@@ -6,11 +6,14 @@ import argparse
 import json
 
 from forage_rl.agents import get_agent
-from forage_rl.agents.registry import (
-    Agent,
+from forage_rl.agents.context import (
+    DEFAULT_NEURAL_CONTEXT_MODE,
     NEURAL_CONTEXT_MODES,
     NeuralContextMode,
-    canonical_agent,
+    validate_context_mode,
+)
+from forage_rl.agents.registry import (
+    Agent,
     neural_agents,
 )
 from forage_rl.config import DefaultParams, ensure_output_directories
@@ -37,7 +40,7 @@ def train_pretrained_agents(
     device: str = "auto",
     seed: int = DefaultParams.DEFAULT_SEED,
     verbose: bool = True,
-    context_mode: NeuralContextMode = "legacy_context",
+    context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
     horizon: int | None = None,
 ) -> None:
     """Train and save canonical final checkpoints for neural agents."""
@@ -74,18 +77,18 @@ def train_pretrained_agents(
         agent.save_checkpoint(ckpt_path)
 
         metadata = {
-            "agent": canonical_agent(agent_type).value,
+            "agent": agent_type.value,
             "maze_name": maze_name,
             "observable": observable,
             "horizon": resolved_horizon,
             "seed": seed,
             "device": agent.device,
-            "context_mode": context_mode,
+            "context_mode": str(agent.context_mode),
             "num_episodes": num_episodes,
             "num_transitions": run_dataset.num_transitions(),
             **agent.feature_schema_metadata(),
             "hyperparameters": {
-                "context_mode": agent.context_mode,
+                "context_mode": str(agent.context_mode),
                 "gamma": agent.gamma,
                 "beta": agent.beta,
                 "learning_rate": agent.learning_rate,
@@ -113,9 +116,7 @@ def train_pretrained_agents(
         metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
         if verbose:
-            print(
-                f"Saved {canonical_agent(agent_type).value} checkpoint to {ckpt_path}"
-            )
+            print(f"Saved {agent_type.value} checkpoint to {ckpt_path}")
 
 
 def main() -> None:
@@ -152,9 +153,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--context-mode",
-        choices=list(NEURAL_CONTEXT_MODES),
-        default="legacy_context",
-        help="Neural input context mode to use while training checkpoints.",
+        type=validate_context_mode,
+        default=DEFAULT_NEURAL_CONTEXT_MODE,
+        help=(
+            "Neural input context mode to use while training checkpoints. "
+            f"Valid modes: {', '.join(NEURAL_CONTEXT_MODES)}."
+        ),
     )
     parser.add_argument(
         "--seed",

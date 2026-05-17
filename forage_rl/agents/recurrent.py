@@ -9,7 +9,6 @@ import numpy as np
 
 from forage_rl.types import RunDataset, TimedTransition, Trajectory
 from forage_rl.agents.neural_base import NeuralAgentBase
-from forage_rl.agents.registry import Agent
 from forage_rl.config import DefaultParams
 
 
@@ -502,19 +501,19 @@ class RecurrentQAgent(NeuralAgentBase):
 class ElmanAgent(RecurrentQAgent):
     """Recurrent Q-agent with a simple Elman RNN core."""
 
-    agent_name = Agent.ELMAN
+    agent_name = "elman"
     recurrent_core = "elman"
 
 
 class GRUAgent(RecurrentQAgent):
     """Recurrent Q-agent with a GRU core."""
 
-    agent_name = Agent.GRU
+    agent_name = "gru"
     recurrent_core = "gru"
 
 
 class LSTMAgent(RecurrentQAgent):
     """Recurrent Q-agent with an LSTM core."""
 
-    agent_name = Agent.LSTM
+    agent_name = "lstm"
     recurrent_core = "lstm"

@@ -8,7 +8,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from forage_rl.agents.registry import Agent, PolicySpec, is_neural_agent, validate_context_mode
+from forage_rl.agents.context import validate_context_mode
+from forage_rl.agents.registry import Agent, is_neural_agent
+from forage_rl.agents.identities import PolicyIdentity
 from forage_rl.analysis import (
     CombinedPerturbationRun,
     build_patch_benchmark_maze,
@@ -48,7 +50,7 @@ class ExternalRecoveryRunResult:
     no_leave_episode_count: int
 
 
-def _manifest_policy(run: CombinedPerturbationRun) -> PolicySpec | str:
+def _manifest_policy(run: CombinedPerturbationRun) -> PolicyIdentity | str:
     try:
         agent = Agent(run.agent)
     except ValueError:
@@ -56,9 +58,9 @@ def _manifest_policy(run: CombinedPerturbationRun) -> PolicySpec | str:
 
     if is_neural_agent(agent):
         if run.context_mode is None:
-            return PolicySpec(agent=agent, context_mode="legacy_context")
-        return PolicySpec(agent=agent, context_mode=validate_context_mode(run.context_mode))
-    return PolicySpec(agent=agent)
+            return PolicyIdentity(agent=agent)
+        return PolicyIdentity(agent=agent, context_mode=validate_context_mode(run.context_mode))
+    return PolicyIdentity(agent=agent)
 
 
 def _analysis_patch_labels(run: CombinedPerturbationRun, benchmark_maze) -> dict[int, str]:
@@ -343,10 +345,10 @@ def run_external_perturbation_analysis(
 
     for condition_key, results in sorted(grouped_results.items()):
         maze_name, observable, perturbation_kind, perturbation_id, benchmark_kind, result_granularity = condition_key
-        curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
-        signed_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
-        boundary_window_curves_by_policy: dict[PolicySpec | str, list[np.ndarray]] = defaultdict(list)
-        aucs_by_policy: dict[PolicySpec | str, list[float]] = defaultdict(list)
+        curves_by_policy: dict[PolicyIdentity | str, list[np.ndarray]] = defaultdict(list)
+        signed_curves_by_policy: dict[PolicyIdentity | str, list[np.ndarray]] = defaultdict(list)
+        boundary_window_curves_by_policy: dict[PolicyIdentity | str, list[np.ndarray]] = defaultdict(list)
+        aucs_by_policy: dict[PolicyIdentity | str, list[float]] = defaultdict(list)
         for result in results:
             policy = _manifest_policy(result.run)
             curves_by_policy[policy].append(result.absolute_recovery_curve)

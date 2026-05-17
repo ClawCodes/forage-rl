@@ -11,7 +11,17 @@ import numpy as np
 
 from forage_rl.types import RunDataset
 from forage_rl.agents import get_agent, registered_agents
-from forage_rl.agents.registry import Agent, PolicySpec
+from forage_rl.agents.context import (
+    DEFAULT_NEURAL_CONTEXT_MODE,
+    NEURAL_CONTEXT_MODES,
+    NeuralContextMode,
+    validate_context_mode,
+)
+from forage_rl.agents.registry import (
+    Agent,
+    is_neural_agent,
+)
+from forage_rl.agents.identities import PolicyIdentity
 from forage_rl.config import TRAJECTORIES_DIR, ensure_output_directories
 from forage_rl.environments import SimpleMaze, load_builtin_maze_spec, resolve_effective_horizon
 from forage_rl.analysis.mvt import simple_true_mvt_optimal_prt
@@ -30,7 +40,7 @@ from forage_rl.visualization import (
 
 DEFAULT_RECOVERY_AGENTS: tuple[Agent, ...] = (
     Agent.MBRL,
-    Agent.QLearning,
+    Agent.Q_LEARNING,
     Agent.DQN,
     Agent.ELMAN,
     Agent.GRU,
@@ -41,7 +51,7 @@ DEFAULT_PERTURBATION_ID = "decay_swap"
 
 @dataclass(frozen=True)
 class RecoveryRunResult:
-    policy: PolicySpec
+    policy: PolicyIdentity
     run_id: int
     curve: np.ndarray
     signed_curve: np.ndarray
@@ -55,11 +65,10 @@ def _parse_agents(values: list[str]) -> list[Agent]:
     return [Agent(value) for value in values]
 
 
-def _policy_spec(agent: Agent, context_mode: str) -> PolicySpec:
-    return PolicySpec(
-        agent=agent,
-        context_mode=context_mode if agent in {Agent.DQN, Agent.ELMAN, Agent.GRU, Agent.LSTM} else "legacy_context",
-    )
+def _policy_identity(agent: Agent, context_mode: NeuralContextMode) -> PolicyIdentity:
+    if is_neural_agent(agent):
+        return PolicyIdentity(agent=agent, context_mode=context_mode)
+    return PolicyIdentity(agent=agent)
 
 
 def _simple_decays() -> list[float]:
@@ -82,7 +91,7 @@ def _swap_agent_maze(agent, maze) -> None:
 def _save_perturbation_run_dataset(
     run_dataset: RunDataset,
     *,
-    policy: PolicySpec,
+    policy: PolicyIdentity,
     run_id: int,
     maze_name: str,
     observable: bool,
@@ -124,8 +133,8 @@ def _save_perturbation_run_dataset(
         "num_episodes": run_dataset.num_episodes(),
         "num_transitions": run_dataset.num_transitions(),
     }
-    if policy.agent in {Agent.DQN, Agent.ELMAN, Agent.GRU, Agent.LSTM}:
-        metadata["context_mode"] = policy.context_mode
+    if is_neural_agent(policy.agent):
+        metadata["context_mode"] = str(policy.context_mode)
     filepath.with_suffix(".json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return filepath
 
@@ -136,7 +145,7 @@ def _combine_run_datasets(pre_run: RunDataset, post_run: RunDataset) -> RunDatas
 
 def _run_single_recovery_experiment(
     *,
-    policy: PolicySpec,
+    policy: PolicyIdentity,
     run_id: int,
     maze_name: str,
     observable: bool,
@@ -239,12 +248,12 @@ def run_perturbation_recovery_experiment(
     post_episodes: int = 100,
     recovery_window: int = 100,
     device: str = "auto",
-    context_mode: str = "legacy_context",
+    context_mode: NeuralContextMode = DEFAULT_NEURAL_CONTEXT_MODE,
     seed: int = 0,
     horizon: int | None = None,
     perturbation_id: str = DEFAULT_PERTURBATION_ID,
     verbose: bool = True,
-) -> dict[PolicySpec, list[RecoveryRunResult]]:
+) -> dict[PolicyIdentity, list[RecoveryRunResult]]:
     """Generate perturbation recovery datasets and figures for simple/FO."""
     if maze_name != "simple":
         raise ValueError("True MVT perturbation recovery is currently implemented only for simple.")
@@ -255,9 +264,9 @@ def run_perturbation_recovery_experiment(
     if recovery_window <= 0:
         raise ValueError(f"recovery_window must be > 0, got {recovery_window}")
 
-    results_by_policy: dict[PolicySpec, list[RecoveryRunResult]] = {}
+    results_by_policy: dict[PolicyIdentity, list[RecoveryRunResult]] = {}
     for agent in selected_agents:
-        policy = _policy_spec(agent, context_mode)
+        policy = _policy_identity(agent, context_mode)
         policy_results: list[RecoveryRunResult] = []
         for run_id in range(num_runs):
             result = _run_single_recovery_experiment(
@@ -376,8 +385,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--context-mode",
-        default="legacy_context",
-        help="Neural input context mode for neural agents.",
+        type=validate_context_mode,
+        default=DEFAULT_NEURAL_CONTEXT_MODE,
+        help=(
+            "Neural input context mode for neural agents. "
+            f"Valid modes: {', '.join(NEURAL_CONTEXT_MODES)}."
+        ),
     )
     parser.add_argument(
         "--seed",
